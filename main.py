@@ -45,6 +45,7 @@ class MCQQPlugin(Star):
         self.connected = False
         self.reconnect_interval = 3  # 重连间隔(秒)
         self.websocket = None
+        self.should_reconnect = True  # 是否应该继续尝试重连
         
         # 启动WebSocket客户端
         asyncio.create_task(self.start_websocket_client())
@@ -78,7 +79,7 @@ class MCQQPlugin(Star):
         retry_count = 0
         max_retries = 5
         
-        while True:
+        while self.should_reconnect:
             try:
                 if not self.connected:
                     logger.info(f"正在连接到鹊桥模组WebSocket服务器: {self.ws_url}")
@@ -118,15 +119,18 @@ class MCQQPlugin(Star):
                 wait_time = min(self.reconnect_interval * retry_count, 60)  # 指数退避，最大60秒
                 
                 if retry_count > max_retries:
-                    logger.error(f"WebSocket连接失败次数过多({retry_count}次)，将在{wait_time}秒后继续尝试")
+                    logger.error(f"WebSocket连接失败次数过多({retry_count}次)，已停止自动重连。使用 /mcstatus 命令手动触发重连")
+                    self.should_reconnect = False  # 停止重连尝试
+                    break  # 退出循环
                 else:
                     logger.error(f"WebSocket连接错误: {e}, 将在{wait_time}秒后尝试重新连接...(第{retry_count}次)")
-                
-                await asyncio.sleep(wait_time)
+                    await asyncio.sleep(wait_time)
             
             except Exception as e:
                 logger.error(f"WebSocket处理未知错误: {e}")
                 await asyncio.sleep(self.reconnect_interval)
+                
+        logger.info("WebSocket连接循环已退出，等待手动触发重连")
     
     async def handle_mc_message(self, message: str):
         """处理从Minecraft服务器接收到的消息"""
@@ -324,22 +328,25 @@ class MCQQPlugin(Star):
         
         group_id = event.get_group_id()
         
+        # 如果连接失败且不在重连状态，则手动触发重连
+        if not self.connected and not self.should_reconnect:
+            self.should_reconnect = True
+            asyncio.create_task(self.start_websocket_client())
+            yield event.plain_result("未连接到服务器，正在尝试重新连接...")
+            return
+        
         # 生成状态消息
         status_msg = f"🔌 Minecraft服务器连接状态: {'已连接' if self.connected else '未连接'}\n"
         status_msg += f"🌐 WebSocket地址: {self.ws_url}\n"
         
         # 添加绑定信息
-        if group_id:
-            server_name = self.server_name
-            is_bound = server_name in self.group_bindings and group_id in self.group_bindings[server_name]
-            
-            if is_bound:
-                status_msg += "🔗 本群已绑定Minecraft服务器"
-            else:
-                status_msg += "🔗 本群未绑定Minecraft服务器"
+        server_name = self.server_name
+        is_bound = server_name in self.group_bindings and group_id in self.group_bindings[server_name]
+        
+        if is_bound:
+            status_msg += "🔗 本群已绑定Minecraft服务器"
         else:
-            bound_count = sum(len(groups) for groups in self.group_bindings.values())
-            status_msg += f"🔗 当前共有 {bound_count} 个群聊绑定"
+            status_msg += "🔗 本群未绑定Minecraft服务器"
         
         yield event.plain_result(status_msg)
     
@@ -364,3 +371,16 @@ class MCQQPlugin(Star):
         
         # 发送消息到Minecraft
         await self.send_mc_message(message, sender_name)
+
+    @filter.command("mc帮助")
+    async def mc_help_command(self, event: AstrMessageEvent):
+        """显示Minecraft相关命令的帮助信息"""
+        
+        help_msg = """
+        Minecraft相关命令:
+        /mcbind - 绑定当前群聊与Minecraft服务器
+        /mcunbind - 解除当前群聊与Minecraft服务器的绑定
+        /mcstatus - 显示当前Minecraft服务器连接状态和绑定信息
+        /mcsay - 向Minecraft服务器发送消息
+        """
+        yield event.plain_result(help_msg)
