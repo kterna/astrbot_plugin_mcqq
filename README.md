@@ -20,11 +20,15 @@
 - `QQ_MESSAGE_PREFIX`: 转发到QQ消息的前缀
 - `ENABLE_JOIN_QUIT_MESSAGES`: 是否转发玩家加入/退出服务器的消息
 
+## 注意事项
+
+目前为测试性开发，暂时只支持fabric端还未适配其他端且可能存在未知问题
+
 ## 命令
 
 - `mcsay <消息>`: 向Minecraft服务器发送消息
-- `mcbind <SERVER_NAME>`：绑定群聊到server
-- `mcunbind <SERVER_NAME>`：取消绑定
+- `mcbind`：绑定群聊
+- `mcunbind`：取消绑定
 - `mcstatus`：查看服务器连接状态
 
 ## 鹊桥模组配置

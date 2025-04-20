@@ -262,30 +262,26 @@ class MCQQPlugin(Star):
             yield event.plain_result("⛔ 只有管理员才能使用此命令")
             return
         
-        # 获取参数
-        args = event.message_str.replace("mcbind", "", 1).strip().split()
-        if len(args) < 1:
-            yield event.plain_result("❓ 请提供要绑定的服务器名称，例如：/mcbind Server")
-            return
-        
-        server_name = args[0]
         group_id = event.get_group_id()
         
         if not group_id:
             yield event.plain_result("❌ 此命令只能在群聊中使用")
             return
         
+
+        server_name = self.server_name
+        
         # 更新绑定关系
         if server_name not in self.group_bindings:
             self.group_bindings[server_name] = []
         
         if group_id in self.group_bindings[server_name]:
-            yield event.plain_result(f"ℹ️ 此群已经与服务器 {server_name} 绑定")
+            yield event.plain_result("ℹ️ 此群已经与Minecraft服务器绑定")
         else:
             self.group_bindings[server_name].append(group_id)
             # 保存绑定关系
             self.save_bindings()
-            yield event.plain_result(f"✅ 成功将本群与服务器 {server_name} 绑定")
+            yield event.plain_result("✅ 成功将本群与Minecraft服务器绑定")
         
         logger.info(f"群聊 {group_id} 与服务器 {server_name} 绑定")
     
@@ -300,27 +296,23 @@ class MCQQPlugin(Star):
             yield event.plain_result("⛔ 只有管理员才能使用此命令")
             return
         
-        # 获取参数
-        args = event.message_str.replace("mcunbind", "", 1).strip().split()
-        if len(args) < 1:
-            yield event.plain_result("❓ 请提供要解绑的服务器名称，例如：/mcunbind Server")
-            return
-        
-        server_name = args[0]
         group_id = event.get_group_id()
         
         if not group_id:
             yield event.plain_result("❌ 此命令只能在群聊中使用")
             return
         
+
+        server_name = self.server_name
+        
         # 更新绑定关系
         if server_name in self.group_bindings and group_id in self.group_bindings[server_name]:
             self.group_bindings[server_name].remove(group_id)
             # 保存绑定关系
             self.save_bindings()
-            yield event.plain_result(f"✅ 成功解除本群与服务器 {server_name} 的绑定")
+            yield event.plain_result("✅ 成功解除本群与Minecraft服务器的绑定")
         else:
-            yield event.plain_result(f"ℹ️ 此群未与服务器 {server_name} 绑定")
+            yield event.plain_result("ℹ️ 此群未与Minecraft服务器绑定")
         
         logger.info(f"解除群聊 {group_id} 与服务器 {server_name} 的绑定")
     
@@ -338,15 +330,13 @@ class MCQQPlugin(Star):
         
         # 添加绑定信息
         if group_id:
-            bound_servers = []
-            for server, groups in self.group_bindings.items():
-                if group_id in groups:
-                    bound_servers.append(server)
+            server_name = self.server_name
+            is_bound = server_name in self.group_bindings and group_id in self.group_bindings[server_name]
             
-            if bound_servers:
-                status_msg += f"🔗 本群已绑定服务器: {', '.join(bound_servers)}"
+            if is_bound:
+                status_msg += "🔗 本群已绑定Minecraft服务器"
             else:
-                status_msg += "🔗 本群未绑定任何服务器"
+                status_msg += "🔗 本群未绑定Minecraft服务器"
         else:
             bound_count = sum(len(groups) for groups in self.group_bindings.values())
             status_msg += f"🔗 当前共有 {bound_count} 个群聊绑定"
