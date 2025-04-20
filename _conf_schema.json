@@ -1,0 +1,32 @@
+{
+    "WEBSOCKET_URL": {
+        "description": "WebSocket服务器连接地址",
+        "type": "string",
+        "hint": "鹊桥模组WebSocket服务器地址",
+        "default": "ws://127.0.0.1:8080/minecraft/ws"
+    },
+    "SERVER_NAME": {
+        "description": "服务器名称",
+        "type": "string",
+        "hint": "用于在消息中显示的服务器名称",
+        "default": "Server"
+    },
+    "ACCESS_TOKEN": {
+        "description": "访问令牌",
+        "type": "string",
+        "hint": "连接到鹊桥模组服务器所需的访问令牌",
+        "default": ""
+    },
+    "QQ_MESSAGE_PREFIX": {
+        "description": "QQ消息前缀",
+        "type": "string",
+        "hint": "发送到QQ群中的消息前缀",
+        "default": "[MC]"
+    },
+    "ENABLE_JOIN_QUIT_MESSAGES": {
+        "description": "是否启用玩家加入离开消息",
+        "type": "bool",
+        "hint": "是否转发玩家加入服务器和离开服务器的消息",
+        "default": true
+    }
+}
