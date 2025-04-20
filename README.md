@@ -1,6 +1,7 @@
 # MCQQ 插件
 
 一个连接 Minecraft 服务器与 QQ 群聊的 AstrBot 插件，通过鹊桥模组实现消息互通。
+[![moe_counter](https://count.getloli.com/get/@astrbot_plugin_mcqq?theme=moebooru)](https://github.com/kterna/astrbot_plugin_mcqq)
 
 ## 功能
 
