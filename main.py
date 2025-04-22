@@ -1,5 +1,5 @@
 from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
-from astrbot.api.star import Context, Star, register
+from astrbot.api.star import Context, Star, register, StarTools
 from astrbot.api.message_components import Plain, Image
 from astrbot.core import AstrBotConfig
 from astrbot import logger
@@ -12,7 +12,7 @@ import websockets
 import os
 from typing import Dict, List, Optional
 
-@register("mcqq", "kterna", "连接Minecraft服务器与QQ群聊的插件，通过鹊桥模组实现消息互通", "1.0.0", "https://github.com/kterna/astrbot_plugin_mcqq")
+@register("mcqq", "kterna", "连接Minecraft服务器与QQ群聊的插件，通过鹊桥模组实现消息互通", "1.1.0", "https://github.com/kterna/astrbot_plugin_mcqq")
 class MCQQPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
@@ -25,7 +25,7 @@ class MCQQPlugin(Star):
         self.enable_join_quit = config.get("ENABLE_JOIN_QUIT_MESSAGES", True)
         
         # 配置文件路径
-        self.data_dir = os.path.join(os.path.dirname(__file__), "data")
+        self.data_dir = StarTools.get_data_dir("mcqq")
         self.bindings_file = os.path.join(self.data_dir, "group_bindings.json")
         
         # 确保数据目录存在
@@ -139,8 +139,24 @@ class MCQQPlugin(Star):
             logger.debug(f"收到Minecraft消息: {data}")
             
             # 获取事件名称和服务器名称
+            server_type = data.get("server_type", "vanilla")
             event_name = data.get("event_name", "")
             server_name = data.get("server_name", self.server_name)
+            
+            # 根据server_type获取对应的服务器类型对象
+            server_class = None
+            if server_type == "vanilla":
+                server_class = Vanilla()
+            elif server_type == "spigot":
+                server_class = Spigot()
+            elif server_type == "fabric":
+                server_class = Fabric()
+            elif server_type == "forge":
+                server_class = Forge()
+            elif server_type == "neoforge":
+                server_class = Neoforge()
+            else:
+                server_class = Vanilla()  # 默认使用vanilla类型
             
             # 获取关联的群聊列表
             bound_groups = self.group_bindings.get(server_name, [])
@@ -148,8 +164,8 @@ class MCQQPlugin(Star):
                 logger.warning(f"服务器 {server_name} 没有关联的群聊，消息将不会被转发")
                 return
             
-            # 处理玩家聊天消息 (ServerMessageEvent)
-            if event_name == "ServerMessageEvent" and data.get("post_type") == "message" and data.get("sub_type") == "chat":
+            # 处理玩家聊天消息
+            if event_name == server_class.chat and data.get("post_type") == "message" and data.get("sub_type") == "chat":
                 player_data = data.get("player", {})
                 player_name = player_data.get("nickname", player_data.get("display_name", "未知玩家"))
                 message_text = data.get("message", "")
@@ -165,7 +181,7 @@ class MCQQPlugin(Star):
             
             # 处理玩家加入/退出消息
             if self.enable_join_quit and event_name:
-                if event_name == "ServerPlayConnectionJoinEvent":
+                if event_name == server_class.join:
                     player_data = data.get("player", {})
                     player_name = player_data.get("nickname", player_data.get("display_name", "未知玩家"))
                     join_message = f"{self.qq_message_prefix} 玩家 {player_name} 加入了服务器"
@@ -174,7 +190,7 @@ class MCQQPlugin(Star):
                     await self.send_to_bound_groups(bound_groups, join_message)
                     logger.info(f"已转发玩家加入消息: {join_message}")
                 
-                elif event_name == "ServerPlayConnectionDisconnectEvent":
+                elif event_name == server_class.quit:
                     player_data = data.get("player", {})
                     player_name = player_data.get("nickname", player_data.get("display_name", "未知玩家"))
                     quit_message = f"{self.qq_message_prefix} 玩家 {player_name} 离开了服务器"
@@ -184,12 +200,19 @@ class MCQQPlugin(Star):
                     logger.info(f"已转发玩家离开消息: {quit_message}")
             
             # 处理玩家死亡消息
-            if event_name == "ServerLivingEntityAfterDeathEvent":
+            if hasattr(server_class, 'death') and event_name == server_class.death:
                 player_data = data.get("player", {})
                 player_name = player_data.get("nickname", player_data.get("display_name", "未知玩家"))
                 death_reason = data.get("message", "未知原因")
-                death_location = f"x:{player_data.get('block_x')},y:{player_data.get('block_y')},z:{player_data.get('block_z')}"
-                death_message = f"{self.qq_message_prefix} 玩家 {player_name} 死亡了，原因：{death_reason}，位置：{death_location}"
+                
+                # 构建死亡位置信息（如果服务器类型支持位置信息）
+                death_location = ""
+                if "block_x" in server_class.player and "block_y" in server_class.player and "block_z" in server_class.player:
+                    death_location = f"位置：x:{player_data.get('block_x')},y:{player_data.get('block_y')},z:{player_data.get('block_z')}"
+                
+                death_message = f"{self.qq_message_prefix} 玩家 {player_name} 死亡了，原因：{death_reason}"
+                if death_location:
+                    death_message += f"，{death_location}"
                 
                 # 转发到关联的群聊
                 await self.send_to_bound_groups(bound_groups, death_message)
@@ -384,3 +407,73 @@ class MCQQPlugin(Star):
         /mcsay - 向Minecraft服务器发送消息
         """
         yield event.plain_result(help_msg)
+
+
+class Vanilla():
+    def __init__(self):
+        self.server_type="vanilla"
+        self.chat="MinecraftPlayerChatEvent"
+        self.join="MinecraftPlayerJoinEvent"
+        self.quit="MinecraftPlayerQuitEvent"
+
+        self.player={
+            "nickname": "nickname",
+        }
+
+class Spigot():
+    def __init__(self):
+        self.server_type="spigot"
+        self.chat="AsyncPlayerChatEvent"
+        self.join="PlayerJoinEvent"
+        self.quit="PlayerQuitEvent"
+        self.death="PlayerDeathEvent"
+        self.player_command="PlayerCommandPreprocessEvent"
+
+        self.player={
+            "nickname": "nickname",
+        }
+
+class Fabric():
+    def __init__(self):
+        self.server_type="fabric"
+        self.chat="ServerMessageEvent"
+        self.join="ServerPlayConnectionJoinEvent"
+        self.quit="ServerPlayConnectionDisconnectEvent"
+        self.death="ServerLivingEntityAfterDeathEvent"
+        self.player_command="ServerCommandMessageEvent"
+
+        self.player={
+            "nickname": "nickname",
+            "block_x": "block_x",
+            "block_y": "block_y",
+            "block_z": "block_z",
+        }
+
+class Forge():    
+    def __init__(self):
+        self.server_type="forge"
+        self.chat="ServerChatEvent"
+        self.join="PlayerLoggedInEvent"
+        self.quit="PlayerLoggedOutEvent"
+
+        self.player={
+            "nickname": "nickname",
+            "block_x": "block_x",
+            "block_y": "block_y",
+            "block_z": "block_z",
+        }
+    
+class Neoforge():
+    def __init__(self):
+        self.server_type="neoforge"
+        self.chat="NeoServerChatEvent"
+        self.join="NeoPlayerLoggedInEvent"
+        self.quit="NeoPlayerLoggedOutEvent"
+        self.player_command="NeoCommandEventb"
+
+        self.player={
+            "nickname": "nickname",
+            "block_x": "block_x",
+            "block_y": "block_y",
+            "block_z": "block_z",
+        }
