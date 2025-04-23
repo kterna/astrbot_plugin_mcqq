@@ -12,7 +12,8 @@
 
 ## 安装要求
 
-- Minecraft 服务器安装鹊桥模组（QuickBridge）
+- Minecraft 服务器安装鹊桥模组（queqiao）
+https://www.curseforge.com/minecraft/mc-mods/queqiao
 
 ### 配置项说明
 
@@ -24,6 +25,7 @@
 
 ## 更新日志
 
+- v1.2.0 fix README
 - v1.1.0 修复插件数据路径，增加多服务端的支持
 - v1.0.0 发布测试版本
 
@@ -40,14 +42,14 @@
 
 ## 鹊桥模组配置
 
-确保Minecraft服务器已安装鹊桥模组（QuickBridge），并且config.yml配置如下：
+确保Minecraft服务器已安装鹊桥模组（queqiao），并且config.yml配置如下：
 
 ```json
 {
   "server_name": "Server",  // 必须与插件中的SERVER_NAME一致
-  "access_token": "",       // 如果设置了token，需要在插件中也配置相同的值
+  "access_token": "",       // 如果设置了token，需要在插件中也配置相同的值（可选）
   "websocket": {
-    "host": "0.0.0.0",
+    "host": "127.0.0.1",
     "port": 8080
   }
 }

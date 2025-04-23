@@ -12,7 +12,7 @@ import websockets
 import os
 from typing import Dict, List, Optional
 
-@register("mcqq", "kterna", "连接Minecraft服务器与QQ群聊的插件，通过鹊桥模组实现消息互通", "1.1.0", "https://github.com/kterna/astrbot_plugin_mcqq")
+@register("mcqq", "kterna", "连接Minecraft服务器与QQ群聊的插件，通过鹊桥模组实现消息互通", "1.2.0", "https://github.com/kterna/astrbot_plugin_mcqq")
 class MCQQPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
