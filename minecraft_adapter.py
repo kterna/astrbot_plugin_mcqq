@@ -4,12 +4,14 @@ import os
 import uuid
 import websockets
 from typing import Dict, List, Any, Awaitable
+from pathlib import Path
 
 from astrbot.api.platform import Platform, AstrBotMessage, MessageMember, PlatformMetadata, MessageType
 from astrbot.api.event import MessageChain
 from astrbot.api.message_components import Plain, Image
 from astrbot.core.platform.astr_message_event import MessageSesion
 from astrbot.core.platform.register import register_platform_adapter
+from astrbot.core.star.star_tools import StarTools
 from astrbot import logger
 
 from .minecraft_event import MinecraftMessageEvent
@@ -38,13 +40,8 @@ class MinecraftPlatformAdapter(Platform):
         self.enable_join_quit = self.config.get("enable_join_quit_messages", True)
         self.qq_message_prefix = self.config.get("qq_message_prefix", "[MC]")
 
-        # 配置文件路径
-        self.data_dir = os.path.join("data", "minecraft")
+        self.data_dir = str(StarTools.get_data_dir("mcqq"))
         self.bindings_file = os.path.join(self.data_dir, "group_bindings.json")
-
-        # 确保数据目录存在
-        if not os.path.exists(self.data_dir):
-            os.makedirs(self.data_dir)
 
         # 群聊与服务器关联配置
         self.group_bindings = self.load_bindings()
