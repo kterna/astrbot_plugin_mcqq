@@ -10,7 +10,7 @@ from typing import Optional
 # 导入平台适配器
 from .minecraft_adapter import MinecraftPlatformAdapter
 
-@register("mcqq", "kterna", "连接Minecraft服务器与QQ群聊的插件，通过鹊桥模组实现消息互通", "1.3.0", "https://github.com/kterna/astrbot_plugin_mcqq")
+@register("mcqq", "kterna", "通过鹊桥模组实现Minecraft平台适配器，以及mcqq互联的插件", "1.3.0", "https://github.com/kterna/astrbot_plugin_mcqq")
 class MCQQPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
