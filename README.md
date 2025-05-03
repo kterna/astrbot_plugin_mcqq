@@ -8,7 +8,8 @@
 - 将 Minecraft 聊天消息转发到 QQ 群
 - 将 QQ 群消息转发到 Minecraft 服务器
 - 支持玩家加入/退出服务器的消息通知
-- 在游戏内输入"qq"开头的消息可自动转发到QQ群
+- 在游戏内输入"#qq"开头的消息可自动转发到QQ群
+- 在游戏内输入"#astr"开头的消息可调用astrbot框架的指令或llm
 
 ## 安装要求
 
@@ -25,9 +26,13 @@ https://www.curseforge.com/minecraft/mc-mods/queqiao
 
 ## 更新日志
 
+- v1.3.0 增加了minecraft平台适配器，将minecraft服务器接入了astrbot框架
 - v1.2.0 fix README
 - v1.1.0 修复插件数据路径，增加多服务端的支持
 - v1.0.0 发布测试版本
+
+## TODO
+支持更多minecraft服务器
 
 ## 注意事项
 
@@ -35,10 +40,15 @@ https://www.curseforge.com/minecraft/mc-mods/queqiao
 
 ## 命令
 
+qq命令:
 - `mcsay <消息>`: 向Minecraft服务器发送消息
 - `mcbind`：绑定群聊
 - `mcunbind`：取消绑定
 - `mcstatus`：查看服务器连接状态
+
+mc命令:
+- `#qq <消息>`:向qq群发送消息
+- `#astr <消息>`:调用astrbot框架的指令或llm
 
 ## 鹊桥模组配置
 
