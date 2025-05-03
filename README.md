@@ -16,6 +16,13 @@
 - Minecraft 服务器安装鹊桥模组（queqiao）
 https://www.curseforge.com/minecraft/mc-mods/queqiao
 
+### 使用说明
+
+在平台适配器中新增minecraft平台适配器，并配置相关配置连接到minecraft服务器
+在服务器中可使用"#astr"命令进行astrbot自身的指令或llm
+![llm](image/llm.png)
+![help](image/help.png)
+
 ### 配置项说明
 
 - `WEBSOCKET_URL`: 鹊桥模组的WebSocket服务器地址
