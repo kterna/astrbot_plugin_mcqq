@@ -37,6 +37,7 @@ https://www.curseforge.com/minecraft/mc-mods/queqiao
 ## 注意事项
 
 目前为测试性开发，未测试所有minecraft客户端，可能存在未知问题
+在minecraft中使用astrbot命令无法支持图片、语音、视频等，目前仅支持文字
 
 ## 命令
 

@@ -194,7 +194,7 @@ class MinecraftPlatformAdapter(Platform):
 
                 # 处理以"#qq"开头的消息，转发到QQ群
                 if message_text.startswith("#qq"):
-                    message_text = message_text[2:].strip()
+                    message_text = message_text[3:].strip()
                     # 构建转发到QQ的消息
                     qq_message = f"{self.qq_message_prefix} {player_name}: {message_text}"
 
