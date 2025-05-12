@@ -22,7 +22,12 @@ from .server_types import Vanilla, Spigot, Fabric, Forge, Neoforge
     "server_name": "Server",
     "access_token": "",
     "enable_join_quit_messages": True,
-    "qq_message_prefix": "[MC]"
+    "qq_message_prefix": "[MC]",
+    "max_reconnect_retries": 5,
+    "reconnect_interval": 3,
+    "filter_bots": True,
+    "bot_prefix": ["bot_", "Bot_"],
+    "bot_suffix": []
 })
 class MinecraftPlatformAdapter(Platform):
     def __init__(self, platform_config: dict, platform_settings: dict, event_queue: asyncio.Queue) -> None:
@@ -39,6 +44,15 @@ class MinecraftPlatformAdapter(Platform):
         self.access_token = self.config.get("access_token", "")
         self.enable_join_quit = self.config.get("enable_join_quit_messages", True)
         self.qq_message_prefix = self.config.get("qq_message_prefix", "[MC]")
+        
+        # 从配置中获取重连参数
+        self.reconnect_interval = self.config.get("reconnect_interval", 3)  # 重连间隔(秒)
+        self.max_retries = self.config.get("max_reconnect_retries", 5)  # 最大重试次数
+        
+        # 假人过滤配置
+        self.filter_bots = self.config.get("filter_bots", True)
+        self.bot_prefix = self.config.get("bot_prefix", ["bot_", "Bot_"])
+        self.bot_suffix = self.config.get("bot_suffix", [])
 
         self.data_dir = str(StarTools.get_data_dir("mcqq"))
         self.bindings_file = os.path.join(self.data_dir, "group_bindings.json")
@@ -49,14 +63,15 @@ class MinecraftPlatformAdapter(Platform):
         # WebSocket连接头信息
         self.headers = {
             "x-self-name": self.server_name,
-            "x-client-origin": "astrbot"
+            "x-client-origin": "astrbot",
+            "Authorization": self.access_token  # 添加access_token到请求头
         }
 
         # 连接状态和重连参数
         self.connected = False
-        self.reconnect_interval = 3  # 重连间隔(秒)
         self.websocket = None
         self.should_reconnect = True  # 是否应该继续尝试重连
+        self.total_retries = 0  # 总重试次数
 
     def load_bindings(self) -> Dict[str, List[str]]:
         """从文件加载群聊与服务器的绑定关系"""
@@ -99,12 +114,18 @@ class MinecraftPlatformAdapter(Platform):
     async def start_websocket_client(self):
         """启动WebSocket客户端，维持与鹊桥模组的连接"""
         retry_count = 0
-        max_retries = 5
+        max_retries = self.max_retries
 
         while self.should_reconnect:
             try:
                 if not self.connected:
                     logger.info(f"正在连接到鹊桥模组WebSocket服务器: {self.ws_url}")
+                    
+                    # 记录token使用情况
+                    if self.access_token:
+                        logger.info("使用access_token进行WebSocket连接认证")
+                    else:
+                        logger.warning("未配置access_token，连接可能不安全")
 
                     # 尝试建立连接
                     self.websocket = await websockets.connect(
@@ -116,6 +137,7 @@ class MinecraftPlatformAdapter(Platform):
 
                     self.connected = True
                     retry_count = 0  # 重置重试计数
+                    self.total_retries = 0  # 重置总重试次数
                     logger.info("成功连接到鹊桥模组WebSocket服务器")
 
                     # 持续接收消息
@@ -124,10 +146,25 @@ class MinecraftPlatformAdapter(Platform):
                             message = await self.websocket.recv()
                             logger.debug(f"原始WebSocket消息: {message}")
                             await self.handle_mc_message(message)
-                        except websockets.exceptions.ConnectionClosed:
-                            logger.warning("WebSocket连接已关闭，准备重新连接")
+                        except websockets.exceptions.ConnectionClosed as e:
+                            logger.warning(f"WebSocket连接已关闭，代码: {e.code}, 原因: {e.reason}")
                             self.connected = False
                             self.websocket = None
+                            
+                            # 检查是否是认证错误或其他永久性错误
+                            if e.code == 1008:  # 策略违反（可能是认证失败）
+                                logger.error(f"WebSocket连接因策略违反而关闭，可能是access_token错误: {e.reason}")
+                                self.should_reconnect = False
+                                break
+                            elif e.code == 1003:  # 不支持的数据
+                                logger.error(f"WebSocket连接因不支持的数据而关闭: {e.reason}")
+                                self.should_reconnect = False
+                                break
+                            elif e.code == 1010:  # 必需的扩展
+                                logger.error(f"WebSocket连接因扩展问题而关闭: {e.reason}")
+                                self.should_reconnect = False
+                                break
+                            
                             break
 
             except (websockets.exceptions.ConnectionClosed,
@@ -135,16 +172,36 @@ class MinecraftPlatformAdapter(Platform):
                     ConnectionRefusedError) as e:
                 self.connected = False
                 self.websocket = None
+                
+                # 检查是否是可能无法恢复的错误
+                if isinstance(e, websockets.exceptions.InvalidStatusCode):
+                    if e.status_code == 401:  # 未授权，可能是token错误
+                        logger.error(f"WebSocket连接未授权(401)，请检查access_token是否正确。停止重试。")
+                        self.should_reconnect = False
+                        break
+                    elif e.status_code == 403:  # 禁止访问
+                        logger.error(f"WebSocket连接被拒绝(403)，服务器拒绝访问。停止重试。")
+                        self.should_reconnect = False
+                        break
+                    elif e.status_code == 404:  # 路径不存在
+                        logger.error(f"WebSocket连接失败(404)，请检查ws_url是否正确。停止重试。")
+                        self.should_reconnect = False
+                        break
 
                 retry_count += 1
+                self.total_retries += 1
                 wait_time = min(self.reconnect_interval * retry_count, 60)  # 指数退避，最大60秒
 
-                if retry_count > max_retries:
+                if self.total_retries >= self.max_retries:
+                    logger.error(f"WebSocket连接失败次数已达到最大限制({self.max_retries}次)，停止重试")
+                    self.should_reconnect = False
+                    break
+                elif retry_count > max_retries:
                     logger.error(f"WebSocket连接失败次数过多({retry_count}次)，将在60秒后重试")
                     await asyncio.sleep(60)
                     retry_count = 0
                 else:
-                    logger.error(f"WebSocket连接错误: {e}, 将在{wait_time}秒后尝试重新连接...(第{retry_count}次)")
+                    logger.error(f"WebSocket连接错误: {e}, 将在{wait_time}秒后尝试重新连接...(第{retry_count}次，总计{self.total_retries}次)")
                     await asyncio.sleep(wait_time)
 
             except Exception as e:
@@ -252,6 +309,11 @@ class MinecraftPlatformAdapter(Platform):
                 if event_name == server_class.join:
                     player_data = data.get("player", {})
                     player_name = player_data.get("nickname", player_data.get("display_name", "未知玩家"))
+                    
+                    # 检查是否为假人
+                    if self.is_bot_player(player_name):
+                        return
+                        
                     join_message = f"{self.qq_message_prefix} 玩家 {player_name} 加入了服务器"
 
                     # 转发到关联的群聊
@@ -260,6 +322,11 @@ class MinecraftPlatformAdapter(Platform):
                 elif event_name == server_class.quit:
                     player_data = data.get("player", {})
                     player_name = player_data.get("nickname", player_data.get("display_name", "未知玩家"))
+                    
+                    # 检查是否为假人
+                    if self.is_bot_player(player_name):
+                        return
+                        
                     quit_message = f"{self.qq_message_prefix} 玩家 {player_name} 离开了服务器"
 
                     # 转发到关联的群聊
@@ -269,6 +336,11 @@ class MinecraftPlatformAdapter(Platform):
             if hasattr(server_class, 'death') and event_name == server_class.death:
                 player_data = data.get("player", {})
                 player_name = player_data.get("nickname", player_data.get("display_name", "未知玩家"))
+                
+                # 检查是否为假人
+                if self.is_bot_player(player_name):
+                    return
+                    
                 death_reason = data.get("message", "未知原因")
 
                 # 构建死亡位置信息（如果服务器类型支持位置信息）
@@ -438,3 +510,20 @@ class MinecraftPlatformAdapter(Platform):
             server_name = self.server_name
 
         return server_name in self.group_bindings and group_id in self.group_bindings[server_name]
+
+    def is_bot_player(self, player_name: str) -> bool:
+        """检查玩家是否为假人"""
+        if not self.filter_bots:
+            return False
+            
+        # 检查前缀
+        for prefix in self.bot_prefix:
+            if player_name.startswith(prefix):
+                return True
+                
+        # 检查后缀
+        for suffix in self.bot_suffix:
+            if player_name.endswith(suffix):
+                return True
+                
+        return False

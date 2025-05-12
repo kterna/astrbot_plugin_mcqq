@@ -30,9 +30,15 @@ https://www.curseforge.com/minecraft/mc-mods/queqiao
 - `ACCESS_TOKEN`: 访问令牌，如果鹊桥模组配置了access_token则需要填写
 - `QQ_MESSAGE_PREFIX`: 转发到QQ消息的前缀
 - `ENABLE_JOIN_QUIT_MESSAGES`: 是否转发玩家加入/退出服务器的消息
+- `MAX_RECONNECT_RETRIES`: 连接断开后最大重试次数，默认5次
+- `RECONNECT_INTERVAL`: 重连间隔（秒），默认3秒
+- `FILTER_BOTS`:是否开启假人消息筛选
+- `BOT_PREFIX`:假人前缀
+- `BOT_SUFFIX`:假人后缀
 
 ## 更新日志
 
+- v1.3.1 修复bug，增加识别假人功能，若配置中未出现对应配置项请删除重新创建
 - v1.3.0 增加了minecraft平台适配器，将minecraft服务器接入了astrbot框架
 - v1.2.0 fix README
 - v1.1.0 修复插件数据路径，增加多服务端的支持
@@ -45,6 +51,7 @@ https://www.curseforge.com/minecraft/mc-mods/queqiao
 
 目前为测试性开发，未测试所有minecraft客户端，可能存在未知问题
 在minecraft中使用astrbot命令无法支持图片、语音、视频等，目前仅支持文字
+可以配置筛选假人消息不广播，假人通过前缀或后缀进行筛选
 
 ## 命令
 
@@ -65,7 +72,7 @@ mc命令:
 ```json
 {
   "server_name": "Server",  // 必须与插件中的SERVER_NAME一致
-  "access_token": "",       // 如果设置了token，需要在插件中也配置相同的值（可选）
+  "access_token": "your_secure_token",  // 建议设置安全token并在插件配置中填写相同的值
   "websocket": {
     "host": "127.0.0.1",
     "port": 8080

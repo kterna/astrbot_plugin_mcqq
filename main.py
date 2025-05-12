@@ -10,7 +10,7 @@ from typing import Optional
 # 导入平台适配器
 from .minecraft_adapter import MinecraftPlatformAdapter
 
-@register("mcqq", "kterna", "通过鹊桥模组实现Minecraft平台适配器，以及mcqq互联的插件", "1.3.0", "https://github.com/kterna/astrbot_plugin_mcqq")
+@register("mcqq", "kterna", "通过鹊桥模组实现Minecraft平台适配器，以及mcqq互联的插件", "1.3.1", "https://github.com/kterna/astrbot_plugin_mcqq")
 class MCQQPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -194,11 +194,7 @@ class MCQQPlugin(Star):
         sender_name = event.get_sender_name()
 
         # 发送消息到Minecraft
-        success = await adapter.send_mc_message(message, sender_name)
-        if success:
-            yield event.plain_result("✅ 消息已发送到Minecraft服务器")
-        else:
-            yield event.plain_result("❌ 消息发送失败")
+        await adapter.send_mc_message(message, sender_name)
 
     @filter.command("mc帮助")
     async def mc_help_command(self, event: AstrMessageEvent):
