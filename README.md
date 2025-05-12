@@ -38,6 +38,7 @@ https://www.curseforge.com/minecraft/mc-mods/queqiao
 
 ## 更新日志
 
+- v1.3.2 修复bug
 - v1.3.1 修复bug，增加识别假人功能，若配置中未出现对应配置项请删除重新创建
 - v1.3.0 增加了minecraft平台适配器，将minecraft服务器接入了astrbot框架
 - v1.2.0 fix README

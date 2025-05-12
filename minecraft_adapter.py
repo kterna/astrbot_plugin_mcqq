@@ -122,9 +122,7 @@ class MinecraftPlatformAdapter(Platform):
                     logger.info(f"正在连接到鹊桥模组WebSocket服务器: {self.ws_url}")
                     
                     # 记录token使用情况
-                    if self.Authorization:
-                        logger.info("使用Authorization进行WebSocket连接认证")
-                    else:
+                    if not self.Authorization:
                         logger.warning("未配置Authorization，连接可能不安全")
 
                     # 尝试建立连接

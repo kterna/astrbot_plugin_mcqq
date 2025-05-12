@@ -10,7 +10,7 @@ from typing import Optional
 # 导入平台适配器
 from .minecraft_adapter import MinecraftPlatformAdapter
 
-@register("mcqq", "kterna", "通过鹊桥模组实现Minecraft平台适配器，以及mcqq互联的插件", "1.3.1", "https://github.com/kterna/astrbot_plugin_mcqq")
+@register("mcqq", "kterna", "通过鹊桥模组实现Minecraft平台适配器，以及mcqq互联的插件", "1.3.2", "https://github.com/kterna/astrbot_plugin_mcqq")
 class MCQQPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -151,31 +151,27 @@ class MCQQPlugin(Star):
         if not adapter.connected:
             yield event.plain_result("⏳ Minecraft服务器未连接，正在尝试连接...")
             
-            # 检查是否已经有重连任务在运行
-            if not hasattr(adapter, 'reconnect_task') or adapter.reconnect_task.done():
-                adapter.reconnect_task = asyncio.create_task(adapter.start_websocket_client())
+            # 强制重置连接状态
+            adapter.connected = False
+            adapter.websocket = None
+            adapter.should_reconnect = True
+            adapter.total_retries = 0
             
-            # 等待连接尝试，最多等待5秒
-            for _ in range(10):
-                await asyncio.sleep(0.5)
-                if adapter.connected:
-                    yield event.plain_result("✅ Minecraft服务器连接成功！")
-                    return
-            
-            yield event.plain_result("❌ 连接尝试超时，请检查服务器状态")
-
-        # 生成状态消息
-        status_msg = f"🔌 Minecraft服务器连接状态: {'已连接' if adapter.connected else '未连接'}\n"
-
-        # 添加绑定信息
-        is_bound = adapter.is_group_bound(group_id)
-
-        if is_bound:
-            status_msg += "🔗 本群已绑定Minecraft服务器"
+            # 启动新的重连任务并等待结果
+            asyncio.create_task(adapter.start_websocket_client())
         else:
-            status_msg += "🔗 本群未绑定Minecraft服务器"
+            # 生成状态消息
+            status_msg = f"🔌 Minecraft服务器连接状态: {'已连接' if adapter.connected else '未连接'}\n"
 
-        yield event.plain_result(status_msg)
+            # 添加绑定信息
+            is_bound = adapter.is_group_bound(group_id)
+
+            if is_bound:
+                status_msg += "🔗 本群已绑定Minecraft服务器"
+            else:
+                status_msg += "🔗 本群未绑定Minecraft服务器"
+
+            yield event.plain_result(status_msg)
 
     @filter.command("mcsay")
     async def mc_say_command(self, event: AstrMessageEvent):
