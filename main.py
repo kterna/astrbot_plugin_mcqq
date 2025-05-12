@@ -150,10 +150,19 @@ class MCQQPlugin(Star):
         # 如果未连接，尝试手动启动连接
         if not adapter.connected:
             yield event.plain_result("⏳ Minecraft服务器未连接，正在尝试连接...")
-            # 创建一个新的任务来启动WebSocket客户端
-            asyncio.create_task(adapter.start_websocket_client())
-            # 等待一段时间，让连接有机会建立
-            await asyncio.sleep(2)
+            
+            # 检查是否已经有重连任务在运行
+            if not hasattr(adapter, 'reconnect_task') or adapter.reconnect_task.done():
+                adapter.reconnect_task = asyncio.create_task(adapter.start_websocket_client())
+            
+            # 等待连接尝试，最多等待5秒
+            for _ in range(10):
+                await asyncio.sleep(0.5)
+                if adapter.connected:
+                    yield event.plain_result("✅ Minecraft服务器连接成功！")
+                    return
+            
+            yield event.plain_result("❌ 连接尝试超时，请检查服务器状态")
 
         # 生成状态消息
         status_msg = f"🔌 Minecraft服务器连接状态: {'已连接' if adapter.connected else '未连接'}\n"

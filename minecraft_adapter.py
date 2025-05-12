@@ -20,7 +20,7 @@ from .server_types import Vanilla, Spigot, Fabric, Forge, Neoforge
 @register_platform_adapter("minecraft", "Minecraft服务器适配器", default_config_tmpl={
     "ws_url": "ws://127.0.0.1:8080/minecraft/ws",
     "server_name": "Server",
-    "access_token": "",
+    "Authorization": "",
     "enable_join_quit_messages": True,
     "qq_message_prefix": "[MC]",
     "max_reconnect_retries": 5,
@@ -41,7 +41,7 @@ class MinecraftPlatformAdapter(Platform):
         # 从配置中获取WebSocket连接信息
         self.ws_url = self.config.get("ws_url", "ws://127.0.0.1:8080/minecraft/ws")
         self.server_name = self.config.get("server_name", "Server")
-        self.access_token = self.config.get("access_token", "")
+        self.Authorization = self.config.get("Authorization", "")
         self.enable_join_quit = self.config.get("enable_join_quit_messages", True)
         self.qq_message_prefix = self.config.get("qq_message_prefix", "[MC]")
         
@@ -64,7 +64,7 @@ class MinecraftPlatformAdapter(Platform):
         self.headers = {
             "x-self-name": self.server_name,
             "x-client-origin": "astrbot",
-            "Authorization": self.access_token  # 添加access_token到请求头
+            "Authorization": f"Bearer {self.Authorization}" if self.Authorization else ""  # 添加Bearer前缀
         }
 
         # 连接状态和重连参数
@@ -122,10 +122,10 @@ class MinecraftPlatformAdapter(Platform):
                     logger.info(f"正在连接到鹊桥模组WebSocket服务器: {self.ws_url}")
                     
                     # 记录token使用情况
-                    if self.access_token:
-                        logger.info("使用access_token进行WebSocket连接认证")
+                    if self.Authorization:
+                        logger.info("使用Authorization进行WebSocket连接认证")
                     else:
-                        logger.warning("未配置access_token，连接可能不安全")
+                        logger.warning("未配置Authorization，连接可能不安全")
 
                     # 尝试建立连接
                     self.websocket = await websockets.connect(
@@ -153,7 +153,7 @@ class MinecraftPlatformAdapter(Platform):
                             
                             # 检查是否是认证错误或其他永久性错误
                             if e.code == 1008:  # 策略违反（可能是认证失败）
-                                logger.error(f"WebSocket连接因策略违反而关闭，可能是access_token错误: {e.reason}")
+                                logger.error(f"WebSocket连接因策略违反而关闭，可能是Authorization错误: {e.reason}")
                                 self.should_reconnect = False
                                 break
                             elif e.code == 1003:  # 不支持的数据
@@ -176,7 +176,7 @@ class MinecraftPlatformAdapter(Platform):
                 # 检查是否是可能无法恢复的错误
                 if isinstance(e, websockets.exceptions.InvalidStatusCode):
                     if e.status_code == 401:  # 未授权，可能是token错误
-                        logger.error(f"WebSocket连接未授权(401)，请检查access_token是否正确。停止重试。")
+                        logger.error(f"WebSocket连接未授权(401)，请检查Authorization是否正确。停止重试。")
                         self.should_reconnect = False
                         break
                     elif e.status_code == 403:  # 禁止访问

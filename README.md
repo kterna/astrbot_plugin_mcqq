@@ -27,7 +27,7 @@ https://www.curseforge.com/minecraft/mc-mods/queqiao
 
 - `WEBSOCKET_URL`: 鹊桥模组的WebSocket服务器地址
 - `SERVER_NAME`: 服务器名称，必须与鹊桥模组配置中的server_name一致
-- `ACCESS_TOKEN`: 访问令牌，如果鹊桥模组配置了access_token则需要填写
+- `AUTHORIZATION`: 访问令牌，如果鹊桥模组配置了access_token则需要填写
 - `QQ_MESSAGE_PREFIX`: 转发到QQ消息的前缀
 - `ENABLE_JOIN_QUIT_MESSAGES`: 是否转发玩家加入/退出服务器的消息
 - `MAX_RECONNECT_RETRIES`: 连接断开后最大重试次数，默认5次
