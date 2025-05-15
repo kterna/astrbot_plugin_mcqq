@@ -9,8 +9,9 @@ from typing import Optional
 
 # 导入平台适配器
 from .minecraft_adapter import MinecraftPlatformAdapter
+import aiomcrcon
 
-@register("mcqq", "kterna", "通过鹊桥模组实现Minecraft平台适配器，以及mcqq互联的插件", "1.3.2", "https://github.com/kterna/astrbot_plugin_mcqq")
+@register("mcqq", "kterna", "通过鹊桥模组实现Minecraft平台适配器，以及mcqq互联的插件", "1.4.0", "https://github.com/kterna/astrbot_plugin_mcqq")
 class MCQQPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -19,8 +20,18 @@ class MCQQPlugin(Star):
         self.platform_manager = None
         self.minecraft_adapter = None
 
+        # RCON 相关属性 - 初始化为默认值，实际值将从适配器配置中加载
+        self.rcon_client: Optional[aiomcrcon.Client] = None
+        self.rcon_enabled: bool = False
+        self.rcon_host: Optional[str] = None
+        self.rcon_port: Optional[int] = None
+        self.rcon_password: Optional[str] = None
+        self.rcon_connected: bool = False
+
         # 初始化平台适配器
         asyncio.create_task(self.initialize_adapter())
+        # 初始化RCON连接 (将从适配器配置读取设置)
+        asyncio.create_task(self.initialize_rcon())
 
     async def initialize_adapter(self):
         """初始化Minecraft平台适配器"""
@@ -50,6 +61,63 @@ class MCQQPlugin(Star):
 
         if not self.minecraft_adapter:
             logger.warning("未找到Minecraft平台适配器，请确保适配器已正确注册并启用")
+
+    async def initialize_rcon(self):
+        """初始化RCON客户端并尝试连接 (从适配器配置中获取设置)"""
+        # 等待适配器初始化完成，确保 self.minecraft_adapter 可用
+        await asyncio.sleep(3)
+
+        adapter = await self.get_minecraft_adapter()
+        if not adapter:
+            logger.warning("RCON初始化推迟：等待Minecraft平台适配器可用...")
+            return
+
+        # 从适配器的配置中获取RCON设置
+        self.rcon_enabled = adapter.config.get("rcon_enabled", False)
+        self.rcon_host = adapter.config.get("rcon_host", "localhost")
+        self.rcon_port = adapter.config.get("rcon_port", 25575)
+        self.rcon_password = adapter.config.get("rcon_password", "")
+
+        if not self.rcon_enabled:
+            logger.info("RCON功能未在适配器配置中启用，跳过RCON初始化。")
+            return
+
+        if not self.rcon_password:
+            logger.error("RCON密码未在适配器配置中配置，无法初始化RCON连接。")
+            return
+        
+        if not self.rcon_host:
+            logger.error("RCON主机未在适配器配置中配置，无法初始化RCON连接。")
+            return
+
+        self.rcon_client = aiomcrcon.Client(self.rcon_host, self.rcon_port, self.rcon_password)
+        logger.info(f"RCON: 正在尝试连接到服务器 {self.rcon_host}:{self.rcon_port}...")
+        try:
+            await self.rcon_client.connect()
+            self.rcon_connected = True
+            logger.info(f"RCON: 成功连接到服务器 {self.rcon_host}:{self.rcon_port}")
+        except aiomcrcon.IncorrectPasswordError:
+            logger.error(f"RCON连接失败：密码不正确。主机: {self.rcon_host}:{self.rcon_port}")
+            self.rcon_client = None # 在认证失败时清除客户端
+        except aiomcrcon.RCONConnectionError as e:
+            logger.error(f"RCON连接错误：无法连接到服务器 {self.rcon_host}:{self.rcon_port}。错误: {e}")
+            self.rcon_client = None # 在连接失败时清除客户端
+        except Exception as e:
+            logger.error(f"初始化RCON时发生未知错误: {e}")
+            self.rcon_client = None # 清除客户端
+
+    async def close_rcon(self):
+        """关闭RCON连接"""
+        if self.rcon_client and self.rcon_connected:
+            logger.info(f"RCON: 正在关闭与服务器 {self.rcon_host}:{self.rcon_port} 的连接...")
+            try:
+                await self.rcon_client.close()
+                logger.info(f"RCON: 连接已成功关闭 ({self.rcon_host}:{self.rcon_port})")
+            except Exception as e:
+                logger.error(f"关闭RCON连接时发生错误: {e}")
+            finally:
+                self.rcon_connected = False
+                self.rcon_client = None # 确保在关闭尝试后客户端为None
 
     async def get_minecraft_adapter(self) -> Optional[MinecraftPlatformAdapter]:
         """获取Minecraft平台适配器"""
@@ -208,10 +276,62 @@ class MCQQPlugin(Star):
         event.should_call_llm(True)
 
         help_msg = """
-        Minecraft相关命令:
-        /mcbind - 绑定当前群聊与Minecraft服务器
-        /mcunbind - 解除当前群聊与Minecraft服务器的绑定
-        /mcstatus - 显示当前Minecraft服务器连接状态和绑定信息
-        /mcsay - 向Minecraft服务器发送消息
-        """
+Minecraft相关指令菜单:
+qq群:
+    '/'或@机器人可发起ai对话
+    /mcbind - 绑定当前群聊与Minecraft服务器
+    /mcunbind - 解除当前群聊与Minecraft服务器的绑定
+    /mcstatus - 显示当前Minecraft服务器连接状态和绑定信息
+    /mcsay - 向Minecraft服务器发送消息
+    /rcon <指令> - 通过RCON执行Minecraft服务器指令 (仅管理员)
+    /投影 - 获取投影菜单帮助(依赖插件astrbot_plugin_litematic)
+mc:
+    #astr - 发起ai对话
+    #qq - 向qq群发送消息
+"""
         yield event.plain_result(help_msg)
+
+    @filter.command("rcon")
+    async def rcon_command(self, event: AstrMessageEvent):
+        """通过RCON执行Minecraft服务器指令"""
+        event.should_call_llm(True)
+
+        if not event.is_admin():
+            yield event.plain_result("⛔ 只有管理员才能使用此命令。")
+            return
+
+        # 首先检查 RCON 是否在配置中启用
+        if not self.rcon_enabled:
+            logger.info(f"RCON: 用户 {event.get_sender_id()} 尝试执行rcon指令，但RCON功能未启用。")
+            yield event.plain_result("❌ RCON 功能当前未启用。请联系管理员在插件配置中启用。")
+            return
+
+        command_to_execute = event.message_str.replace("rcon", "", 1).strip()
+        if not command_to_execute:
+            yield event.plain_result("❓ 请提供要执行的RCON指令，例如：/rcon whitelist add 玩家名")
+            return
+
+        if not self.rcon_client or not self.rcon_connected:
+            logger.warning(f"RCON: 用户 {event.get_sender_id()} 尝试执行指令 '{command_to_execute}' 但RCON未连接。")
+            yield event.plain_result("❌ RCON未连接到Minecraft服务器。正在尝试连接...")
+            asyncio.create_task(self.initialize_rcon()) # 尝试重新初始化RCON连接
+            return
+
+        logger.info(f"RCON: 管理员 {event.get_sender_id()} 正在执行指令: '{command_to_execute}'")
+        try:
+            response = await self.rcon_client.send_cmd(command_to_execute)
+            if response :
+                actual_response = response[0]
+            else:
+                actual_response = "指令执行失败"
+
+            yield event.plain_result(f"{actual_response}")
+            logger.info(f"RCON: 指令 '{command_to_execute}' 响应: {actual_response}")
+
+        except aiomcrcon.ClientNotConnectedError:
+            logger.error("RCON: 在发送指令时发现客户端未连接。")
+            self.rcon_connected = False # 更新连接状态
+            yield event.plain_result("❌ RCON客户端未连接。请重试或检查连接。")
+        except Exception as e:
+            logger.error(f"RCON: 执行指令 '{command_to_execute}' 时发生错误: {e}")
+            yield event.plain_result(f"❌ 执行RCON指令时发生错误: {e}")

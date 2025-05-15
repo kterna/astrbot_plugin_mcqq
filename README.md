@@ -11,10 +11,21 @@
 - 在游戏内输入"#qq"开头的消息可自动转发到QQ群
 - 在游戏内输入"#astr"开头的消息可调用astrbot框架的指令或llm
 
+## 推荐插件
+
+[astrbot_plugin_litematic](https://github.com/kterna/astrbot_plugin_litematic): 一个用于管理和分享Litematic投影文件的插件。支持投影文件的上传、下载、预览和分类管理
+
+## 注意事项
+
+- 目前为测试性开发，未测试所有minecraft客户端，可能存在未知问题
+- 在minecraft中使用astrbot命令无法支持图片、语音、视频等，目前仅支持文字
+- 可以配置筛选假人消息不广播，假人通过前缀或后缀进行筛选
+- RCON配置修改之后需要完全重启astrbot才能重载
+- 更新版本后若平台适配器中未出现对应配置项请删除重新创建
+
 ## 安装要求
 
-- Minecraft 服务器安装鹊桥模组（queqiao）
-https://www.curseforge.com/minecraft/mc-mods/queqiao
+- Minecraft 服务器安装[鹊桥模组queqiao](https://www.curseforge.com/minecraft/mc-mods/queqiao)
 
 ### 使用说明
 
@@ -35,9 +46,14 @@ https://www.curseforge.com/minecraft/mc-mods/queqiao
 - `FILTER_BOTS`:是否开启假人消息筛选
 - `BOT_PREFIX`:假人前缀
 - `BOT_SUFFIX`:假人后缀
+- `RCON_ENABLED`:是否启用RCON命令
+- `RCON_HOST`:RCON地址
+- `RCON_PORT`:RCON端口
+- `RCON_PASSWORD`:RCON密码(必填)
 
 ## 更新日志
 
+- v1.4.0 增加rcon命令
 - v1.3.2 修复bug
 - v1.3.1 修复bug，增加识别假人功能，若配置中未出现对应配置项请删除重新创建
 - v1.3.0 增加了minecraft平台适配器，将minecraft服务器接入了astrbot框架
@@ -48,21 +64,19 @@ https://www.curseforge.com/minecraft/mc-mods/queqiao
 ## TODO
 支持更多minecraft服务器
 
-## 注意事项
-
-目前为测试性开发，未测试所有minecraft客户端，可能存在未知问题
-在minecraft中使用astrbot命令无法支持图片、语音、视频等，目前仅支持文字
-可以配置筛选假人消息不广播，假人通过前缀或后缀进行筛选
-
 ## 命令
 
 qq命令:
-- `mcsay <消息>`: 向Minecraft服务器发送消息
-- `mcbind`：绑定群聊
-- `mcunbind`：取消绑定
-- `mcstatus`：查看服务器连接状态
+
+- `mc帮助`:获取指令帮助
+- `mcsay <消息>`:向Minecraft服务器发送消息
+- `mcbind`:绑定群聊
+- `mcunbind`:取消绑定
+- `mcstatus`:查看服务器连接状态
+- `rcon <指令>`:向服务器控制台发送指令
 
 mc命令:
+
 - `#qq <消息>`:向qq群发送消息
 - `#astr <消息>`:调用astrbot框架的指令或llm
 

@@ -27,7 +27,11 @@ from .server_types import Vanilla, Spigot, Fabric, Forge, Neoforge
     "reconnect_interval": 3,
     "filter_bots": True,
     "bot_prefix": ["bot_", "Bot_"],
-    "bot_suffix": []
+    "bot_suffix": [],
+    "rcon_enabled": False,
+    "rcon_host": "localhost",
+    "rcon_port": 25575,
+    "rcon_password": ""
 })
 class MinecraftPlatformAdapter(Platform):
     def __init__(self, platform_config: dict, platform_settings: dict, event_queue: asyncio.Queue) -> None:
