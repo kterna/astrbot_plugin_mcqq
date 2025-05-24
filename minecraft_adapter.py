@@ -5,6 +5,8 @@ import uuid
 import websockets
 from typing import Dict, List, Any, Awaitable
 from pathlib import Path
+import subprocess
+import psutil
 
 from astrbot.api.platform import Platform, AstrBotMessage, MessageMember, PlatformMetadata, MessageType
 from astrbot.api.event import MessageChain
@@ -171,7 +173,8 @@ class MinecraftPlatformAdapter(Platform):
 
             except (websockets.exceptions.ConnectionClosed,
                     websockets.exceptions.WebSocketException,
-                    ConnectionRefusedError) as e:
+                    ConnectionRefusedError,
+                    asyncio.TimeoutError) as e:
                 self.connected = False
                 self.websocket = None
                 
@@ -241,13 +244,15 @@ class MinecraftPlatformAdapter(Platform):
             if not bound_groups:
                 logger.warning(f"服务器 {server_name} 没有关联的群聊，消息将不会被转发")
                 return
+            
+            player_data = data.get("player", {})
+            player_name = player_data.get("nickname", player_data.get("display_name", "未知玩家"))
+            message_text = data.get("message", "")
+
+            logger.info(f"{player_name}: {message_text}")
 
             # 处理玩家聊天消息
-            if event_name == server_class.chat and data.get("post_type") == "message" and data.get("sub_type") == "chat":
-                player_data = data.get("player", {})
-                player_name = player_data.get("nickname", player_data.get("display_name", "未知玩家"))
-                message_text = data.get("message", "")
-
+            if event_name == server_class.chat:
                 # 处理以"#qq"开头的消息，转发到QQ群
                 if message_text.startswith("#qq"):
                     message_text = message_text[3:].strip()
@@ -305,6 +310,54 @@ class MinecraftPlatformAdapter(Platform):
                     except Exception as e:
                         logger.error(f"执行AstrBot指令时出错: {str(e)}")
                         await self.send_mc_message(f"执行指令时出错: {str(e)}")
+                # 重启ntqq解决腾讯踢人问题
+                elif message_text.startswith("#重启qq"):
+                    try:
+                        # 查找napcat进程并终止
+                        napcat_process_names = ["NapCatWinBootMain.exe"]
+                        killed_processes = []
+                        
+                        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+                            try:
+                                # 匹配进程名
+                                for proc_name in napcat_process_names:
+                                    if proc_name.lower() in proc.info['name'].lower():
+                                        proc.kill()
+                                        killed_processes.append(proc.info)
+                                        logger.info(f"已终止进程: {proc.info['name']}, PID: {proc.info['pid']}")
+                                
+                                # 也检查命令行参数中是否包含napcat
+                                if proc.info['cmdline'] and any("napcat" in cmd.lower() for cmd in proc.info['cmdline']):
+                                    proc.kill()
+                                    killed_processes.append(proc.info)
+                                    logger.info(f"已终止包含napcat的进程: {proc.info['name']}, PID: {proc.info['pid']}")
+                            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess) as e:
+                                logger.error(f"检查进程时出错: {str(e)}")
+                        
+                        # 启动napcat应用程序
+                        napcat_bat_path = "C:\\Users\\rog1\\Desktop\\NapCat.Shell\\Napcatstart.bat"  # 批处理文件路径
+                        napcat_dir = os.path.dirname(napcat_bat_path)  # 获取批处理文件所在目录
+                        
+                        if os.path.exists(napcat_bat_path):
+                            # 切换到批处理文件所在目录然后执行
+                            cmd = f'cd /d "{napcat_dir}" && "{napcat_bat_path}"'
+                            process = subprocess.Popen(
+                                cmd,
+                                shell=True,
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE,
+                                creationflags=subprocess.CREATE_NEW_CONSOLE
+                            )
+                            # 发送成功消息
+                            await self.send_mc_message("NapCat重启命令已执行，正在重新启动...")
+                            logger.info(f"NapCat重启命令已执行，使用命令: {cmd}")
+                        else:
+                            await self.send_mc_message(f"未找到NapCat启动脚本: {napcat_bat_path}")
+                            logger.error(f"未找到NapCat启动脚本: {napcat_bat_path}")
+                    except Exception as e:
+                        error_message = f"重启NapCat时出错: {str(e)}"
+                        await self.send_mc_message(error_message)
+                        logger.error(error_message)
 
             # 处理玩家加入/退出消息
             if self.enable_join_quit and event_name:

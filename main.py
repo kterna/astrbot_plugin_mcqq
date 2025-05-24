@@ -65,7 +65,7 @@ class MCQQPlugin(Star):
     async def initialize_rcon(self):
         """初始化RCON客户端并尝试连接 (从适配器配置中获取设置)"""
         # 等待适配器初始化完成，确保 self.minecraft_adapter 可用
-        await asyncio.sleep(3)
+        await asyncio.sleep(2)
 
         adapter = await self.get_minecraft_adapter()
         if not adapter:
@@ -284,10 +284,12 @@ qq群:
     /mcstatus - 显示当前Minecraft服务器连接状态和绑定信息
     /mcsay - 向Minecraft服务器发送消息
     /rcon <指令> - 通过RCON执行Minecraft服务器指令 (仅管理员)
+    /rcon 重启 - 尝试重新连接RCON服务器
     /投影 - 获取投影菜单帮助(依赖插件astrbot_plugin_litematic)
 mc:
     #astr - 发起ai对话
     #qq - 向qq群发送消息
+    #重启qq - 若qq机器人无反应大概率是被腾讯踢掉了请输入这个命令
 """
         yield event.plain_result(help_msg)
 
@@ -307,6 +309,12 @@ mc:
             return
 
         command_to_execute = event.message_str.replace("rcon", "", 1).strip()
+
+        # 重新连接rcon服务器
+        if command_to_execute == "重启":
+            asyncio.create_task(self.initialize_rcon()) # 尝试重新初始化RCON连接
+            return
+
         if not command_to_execute:
             yield event.plain_result("❓ 请提供要执行的RCON指令，例如：/rcon whitelist add 玩家名")
             return
@@ -323,7 +331,7 @@ mc:
             if response :
                 actual_response = response[0]
             else:
-                actual_response = "指令执行失败"
+                actual_response = "无响应消息"
 
             yield event.plain_result(f"{actual_response}")
             logger.info(f"RCON: 指令 '{command_to_execute}' 响应: {actual_response}")
