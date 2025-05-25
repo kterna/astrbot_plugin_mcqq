@@ -36,7 +36,8 @@ class BroadcastManager:
                 "color": "aqua", 
                 "bold": False,
                 "click_command": "",
-                "hover_text": "🤖 AstrBot 整点报时系统"
+                "hover_text": "🤖 AstrBot 整点报时系统",
+                "click_action": "SUGGEST_COMMAND"
             }
         ]
         self.hourly_broadcast_task: Optional[asyncio.Task] = None
@@ -60,6 +61,11 @@ class BroadcastManager:
                 # 加载自定义广播内容
                 custom_content = config.get("custom_broadcast_content")
                 if custom_content:
+                    # 为旧配置添加click_action字段
+                    for component in custom_content:
+                        if "click_action" not in component:
+                            component["click_action"] = "SUGGEST_COMMAND"
+                    
                     self.custom_broadcast_content = custom_content
                     logger.info("已加载保存的广播配置")
                 
@@ -112,15 +118,22 @@ class BroadcastManager:
         
         # 获取并发送随机Wiki内容
         try:
-            wiki_content = await WikiUtils.get_random_wiki_content()
-            if wiki_content:
+            wiki_data = await WikiUtils.get_random_wiki_content()
+            if wiki_data:
+                title = wiki_data["title"]
+                content = wiki_data["content"]
+                
+                # 构建Wiki URL
+                wiki_url = f"https://zh.minecraft.wiki/w/{title}"
+                
                 # 构建Wiki广播内容
                 wiki_broadcast_content = [{
-                    "text": wiki_content,
+                    "text": f"你知道吗：{title} - {content}",
                     "color": "yellow",
                     "bold": False,
-                    "click_command": "",
-                    "hover_text": "🎓 来自 Minecraft Wiki 的随机知识"
+                    "click_command": wiki_url,
+                    "hover_text": "🎓 来自 Minecraft Wiki 的随机知识，点击查看完整页面",
+                    "click_action": "OPEN_URL"
                 }]
                 
                 # 等待一小段时间再发送Wiki内容，避免消息过于密集
@@ -213,18 +226,26 @@ class BroadcastManager:
                 if not part:
                     continue
                     
-                # 解析每个组件: 文本,颜色,粗体,点击命令,悬浮文本
+                # 解析每个组件: 文本,颜色,粗体,点击命令,悬浮文本,点击事件类型
                 params = [p.strip() for p in part.split(",")]
                 
                 if len(params) < 1:
                     raise ValueError("每个组件至少需要包含文本内容")
+                
+                # 获取点击事件类型，默认为 SUGGEST_COMMAND
+                click_action = "SUGGEST_COMMAND"
+                if len(params) > 5 and params[5]:
+                    click_action_input = params[5].upper()
+                    if click_action_input in ["SUGGEST_COMMAND", "RUN_COMMAND", "OPEN_URL"]:
+                        click_action = click_action_input
                 
                 component = {
                     "text": params[0] if params[0] else "",
                     "color": params[1] if len(params) > 1 and params[1] else "white",
                     "bold": params[2].lower() == "true" if len(params) > 2 and params[2] else False,
                     "click_command": params[3] if len(params) > 3 and params[3] else "",
-                    "hover_text": params[4] if len(params) > 4 and params[4] else ""
+                    "hover_text": params[4] if len(params) > 4 and params[4] else "",
+                    "click_action": click_action
                 }
                 
                 if component["text"]:  # 只添加非空文本的组件
@@ -241,7 +262,8 @@ class BroadcastManager:
                 "color": "aqua",
                 "bold": False,
                 "click_command": "/time query daytime",
-                "hover_text": "🤖 AstrBot 整点报时系统"
+                "hover_text": "🤖 AstrBot 整点报时系统",
+                "click_action": "SUGGEST_COMMAND"
             }]
     
     def _format_broadcast_config_display(self) -> str:
@@ -258,6 +280,9 @@ class BroadcastManager:
                 line += f" | 粗体: 是"
             if component['click_command']:
                 line += f" | 点击: {component['click_command']}"
+                # 显示点击事件类型
+                click_action = component.get('click_action', 'SUGGEST_COMMAND')
+                line += f" | 点击类型: {click_action}"
             if component['hover_text']:
                 line += f" | 悬浮: {component['hover_text']}"
             lines.append(line)
@@ -313,8 +338,9 @@ class BroadcastManager:
             
             # 添加点击事件（如果有）
             if component.get("click_command"):
+                click_action = component.get("click_action", "SUGGEST_COMMAND")
                 msg_component["data"]["click_event"] = {
-                    "action": "SUGGEST_COMMAND",
+                    "action": click_action,
                     "value": component["click_command"]
                 }
 
@@ -353,13 +379,17 @@ class BroadcastManager:
             logger.error("富文本广播发送失败：所有消息都发送失败")
             return False
     
-    async def send_custom_rich_broadcast(self, adapter, text_content: str, click_value: str, hover_text: str) -> bool:
+    async def send_custom_rich_broadcast(self, adapter, text_content: str, click_value: str, hover_text: str, click_action: str = "SUGGEST_COMMAND") -> bool:
         """发送自定义富文本广播消息"""
         if not adapter.connected or not adapter.websocket:
             logger.error("无法发送自定义广播：WebSocket未连接")
             return False
 
         try:
+            # 验证点击事件类型
+            if click_action not in ["SUGGEST_COMMAND", "RUN_COMMAND", "OPEN_URL"]:
+                click_action = "SUGGEST_COMMAND"
+            
             # 构建自定义富文本广播消息
             broadcast_msg = {
                 "api": "broadcast",
@@ -390,7 +420,7 @@ class BroadcastManager:
                                     ]
                                 },
                                 "click_event": {
-                                    "action": "SUGGEST_COMMAND",
+                                    "action": click_action,
                                     "value": click_value
                                 }
                             }

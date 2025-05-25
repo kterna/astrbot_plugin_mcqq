@@ -55,7 +55,8 @@ class MessageHandler:
                                 send_to_groups_callback: Callable[[List[str], str], Awaitable[None]],
                                 send_mc_message_callback: Callable[[str], Awaitable[None]],
                                 commit_event_callback: Callable[[MinecraftMessageEvent], None],
-                                platform_meta) -> bool:
+                                platform_meta,
+                                adapter=None) -> bool:
         """
         处理聊天消息
         
@@ -67,6 +68,7 @@ class MessageHandler:
             send_mc_message_callback: 发送消息到MC的回调函数
             commit_event_callback: 提交事件的回调函数
             platform_meta: 平台元数据
+            adapter: 适配器实例
             
         Returns:
             bool: 是否处理了消息
@@ -123,19 +125,43 @@ class MessageHandler:
         # 处理Wiki查询命令
         elif message_text.startswith("#wiki"):
             wiki_title = message_text[5:].strip()
-            if not wiki_title:
-                help_message = """请输入要查询的Wiki词条，例如：
-#wiki 玻璃 - 查询玻璃的相关信息
-#wiki 钻石 - 查询钻石的相关信息"""
-                await send_mc_message_callback(help_message)
-                return True
             
             try:
-                wiki_content = await WikiUtils.get_wiki_content_by_title(wiki_title)
-                if wiki_content:
-                    await send_mc_message_callback(wiki_content)
+                # 如果没有指定词条，获取随机Wiki内容
+                if not wiki_title:
+                    wiki_data = await WikiUtils.get_random_wiki_content()
                 else:
-                    await send_mc_message_callback(f"无法获取词条 {wiki_title} 的信息，请检查词条名称是否正确")
+                    wiki_data = await WikiUtils.get_wiki_content_by_title(wiki_title)
+                
+                if wiki_data:
+                    title = wiki_data["title"]
+                    content = wiki_data["content"]
+                    
+                    # 构建Wiki URL
+                    wiki_url = f"https://zh.minecraft.wiki/w/{title}"
+                    
+                    # 构建显示文本
+                    if not wiki_title:
+                        # 随机词条使用"你知道吗"格式
+                        display_text = f"你知道吗：{title} - {content}"
+                    else:
+                        # 指定词条使用查询格式
+                        display_text = f"📖 {title}: {content}"
+                    
+                    hover_text = f"🎓 点击查看 {title} 的完整Wiki页面"
+                    
+                    # 如果有适配器实例，发送富文本消息
+                    if adapter and hasattr(adapter, 'send_mc_rich_message'):
+                        await adapter.send_mc_rich_message(display_text, wiki_url, hover_text)
+                    else:
+                        # 降级为普通文本消息
+                        fallback_message = f"{display_text}\n🔗 查看完整页面: {wiki_url}"
+                        await send_mc_message_callback(fallback_message)
+                else:
+                    if not wiki_title:
+                        await send_mc_message_callback("无法获取随机Wiki内容，请稍后重试")
+                    else:
+                        await send_mc_message_callback(f"无法获取词条 {wiki_title} 的信息，请检查词条名称是否正确")
             except Exception as e:
                 logger.error(f"处理Wiki查询时出错: {str(e)}")
                 await send_mc_message_callback(f"Wiki查询出错: {str(e)}")
@@ -169,7 +195,7 @@ class MessageHandler:
             message_obj=abm,
             platform_meta=platform_meta,
             session_id=f"minecraft_{player_name}",
-            adapter=None  # 这里需要在调用方设置
+            adapter=adapter
         )
 
         # 设置回调函数，将AstrBot的响应发送回Minecraft

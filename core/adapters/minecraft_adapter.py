@@ -233,7 +233,8 @@ class MinecraftPlatformAdapter(Platform):
                     send_to_groups_callback=self.send_to_bound_groups,
                     send_mc_message_callback=self.send_mc_message,
                     commit_event_callback=self.commit_event,
-                    platform_meta=self.meta()
+                    platform_meta=self.meta(),
+                    adapter=self
                 )
                 
                 # 设置adapter引用
@@ -371,6 +372,55 @@ class MinecraftPlatformAdapter(Platform):
 
         except Exception as e:
             logger.error(f"发送消息到Minecraft时出错: {str(e)}")
+            return False
+
+    async def send_mc_rich_message(self, text: str, click_url: str, hover_text: str):
+        """发送富文本消息到Minecraft服务器"""
+        if not self.connected or not self.websocket:
+            logger.error("无法发送富文本消息：WebSocket未连接")
+            return False
+
+        try:
+            # 构建富文本消息
+            broadcast_msg = {
+                "api": "broadcast",
+                "data": {
+                    "message": [
+                        {
+                            "type": "text",
+                            "data": {
+                                "text": text,
+                                "color": "yellow",
+                                "bold": False,
+                                "hover_event": {
+                                    "action": "SHOW_TEXT",
+                                    "text": [
+                                        {
+                                            "text": hover_text,
+                                            "color": "gold",
+                                            "bold": True
+                                        }
+                                    ]
+                                },
+                                "click_event": {
+                                    "action": "OPEN_URL",
+                                    "value": click_url
+                                }
+                            }
+                        }
+                    ]
+                }
+            }
+
+            # 打印要发送的JSON消息，便于调试
+            logger.debug(f"发送的富文本WebSocket消息: {json.dumps(broadcast_msg, ensure_ascii=False)}")
+
+            # 发送消息
+            await self.websocket.send(json.dumps(broadcast_msg))
+            return True
+
+        except Exception as e:
+            logger.error(f"发送富文本消息到Minecraft时出错: {str(e)}")
             return False
 
     async def terminate(self):

@@ -11,12 +11,12 @@ class WikiUtils:
     BASE_API_URL = "https://zh.minecraft.wiki/api.php"
     
     @staticmethod
-    async def get_random_wiki_content() -> Optional[str]:
+    async def get_random_wiki_content() -> Optional[Dict[str, str]]:
         """
         从Minecraft Wiki随机获取一个词条
         
         Returns:
-            Optional[str]: 格式化的wiki内容，格式为"你知道吗：{title} - {content}"，失败时返回None
+            Optional[Dict[str, str]]: 包含title和content的字典，失败时返回None
         """
         api_url = f"{WikiUtils.BASE_API_URL}?action=query&prop=extracts&exintro=true&format=json&generator=random&grnnamespace=0&grnlimit=1"
         
@@ -45,18 +45,18 @@ class WikiUtils:
             # 清理HTML并格式化内容
             clean_content = WikiUtils._clean_html_and_format(extract, max_length=200)
             
-            # 格式化返回内容
-            formatted_content = f"你知道吗：{title} - {clean_content}"
-            
             logger.debug(f"成功获取Wiki词条: {title}")
-            return formatted_content
+            return {
+                "title": title,
+                "content": clean_content
+            }
             
         except Exception as e:
             logger.error(f"获取随机Wiki内容时出错: {str(e)}")
             return None
     
     @staticmethod
-    async def get_wiki_content_by_title(title: str) -> Optional[str]:
+    async def get_wiki_content_by_title(title: str) -> Optional[Dict[str, str]]:
         """
         根据标题从Minecraft Wiki获取词条内容
         
@@ -64,20 +64,20 @@ class WikiUtils:
             title: 要搜索的词条标题
             
         Returns:
-            Optional[str]: 格式化的wiki内容，失败时返回错误信息
+            Optional[Dict[str, str]]: 包含title和content的字典，失败时返回None
         """
         api_url = f"{WikiUtils.BASE_API_URL}?action=query&prop=extracts&exintro=true&format=json&titles={title}"
         
         try:
             data = await WikiUtils._make_wiki_request(api_url)
             if not data:
-                return "Wiki请求失败，请稍后重试"
+                return None
             
             # 解析指定标题返回的JSON数据
             pages = data.get("query", {}).get("pages", {})
             if not pages:
                 logger.warning("Wiki API返回的数据中没有找到页面")
-                return f"未找到词条：{title}"
+                return None
             
             # 获取第一个页面
             page_id = next(iter(pages.keys()))
@@ -85,26 +85,26 @@ class WikiUtils:
             
             # 检查页面是否存在（page_id为-1表示页面不存在）
             if page_id == "-1":
-                return f"未找到词条：{title}"
+                return None
             
             page_title = page_data.get("title", title)
             extract = page_data.get("extract", "")
             
             if not extract:
-                return f"词条 {page_title} 没有可用的内容摘要"
+                return None
             
             # 清理HTML并格式化内容
             clean_content = WikiUtils._clean_html_and_format(extract, max_length=200)
             
-            # 格式化返回内容
-            formatted_content = f"📖 {page_title}: {clean_content}"
-            
             logger.debug(f"成功获取Wiki词条: {page_title}")
-            return formatted_content
+            return {
+                "title": page_title,
+                "content": clean_content
+            }
             
         except Exception as e:
             logger.error(f"获取Wiki内容时出错: {str(e)}")
-            return f"获取Wiki内容时出错: {str(e)}"
+            return None
     
     @staticmethod
     async def _make_wiki_request(url: str) -> Optional[Dict[str, Any]]:
