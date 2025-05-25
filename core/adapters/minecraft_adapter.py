@@ -16,8 +16,12 @@ from astrbot.core.platform.register import register_platform_adapter
 from astrbot.core.star.star_tools import StarTools
 from astrbot import logger
 
-from .minecraft_event import MinecraftMessageEvent
-from .server_types import Vanilla, Spigot, Fabric, Forge, Neoforge
+from ..events.minecraft_event import MinecraftMessageEvent
+from ..config.server_types import Vanilla, Spigot, Fabric, Forge, Neoforge
+from ..managers.group_binding_manager import GroupBindingManager
+from ..utils.bot_filter import BotFilter
+from ..managers.process_manager import ProcessManager
+from ..handlers.message_handler import MessageHandler
 
 @register_platform_adapter("minecraft", "Minecraft服务器适配器", default_config_tmpl={
     "ws_url": "ws://127.0.0.1:8080/minecraft/ws",
@@ -55,16 +59,27 @@ class MinecraftPlatformAdapter(Platform):
         self.reconnect_interval = self.config.get("reconnect_interval", 3)  # 重连间隔(秒)
         self.max_retries = self.config.get("max_reconnect_retries", 5)  # 最大重试次数
         
-        # 假人过滤配置
-        self.filter_bots = self.config.get("filter_bots", True)
-        self.bot_prefix = self.config.get("bot_prefix", ["bot_", "Bot_"])
-        self.bot_suffix = self.config.get("bot_suffix", [])
-
+        # 初始化数据目录
         self.data_dir = str(StarTools.get_data_dir("mcqq"))
-        self.bindings_file = os.path.join(self.data_dir, "group_bindings.json")
 
-        # 群聊与服务器关联配置
-        self.group_bindings = self.load_bindings()
+        # 初始化各个管理器
+        self.binding_manager = GroupBindingManager(self.data_dir)
+        self.bot_filter = BotFilter(
+            filter_enabled=self.config.get("filter_bots", True),
+            prefix_list=self.config.get("bot_prefix", ["bot_", "Bot_"]),
+            suffix_list=self.config.get("bot_suffix", [])
+        )
+        self.process_manager = ProcessManager()
+        self.message_handler = MessageHandler(
+            server_name=self.server_name,
+            qq_message_prefix=self.qq_message_prefix,
+            enable_join_quit=self.enable_join_quit,
+            bot_filter=self.bot_filter,
+            process_manager=self.process_manager
+        )
+
+        # 加载绑定关系
+        self.binding_manager.load_bindings()
 
         # WebSocket连接头信息
         self.headers = {
@@ -78,30 +93,6 @@ class MinecraftPlatformAdapter(Platform):
         self.websocket = None
         self.should_reconnect = True  # 是否应该继续尝试重连
         self.total_retries = 0  # 总重试次数
-
-    def load_bindings(self) -> Dict[str, List[str]]:
-        """从文件加载群聊与服务器的绑定关系"""
-        try:
-            if os.path.exists(self.bindings_file):
-                with open(self.bindings_file, 'r', encoding='utf-8') as f:
-                    bindings = json.load(f)
-                logger.info(f"已从 {self.bindings_file} 加载群聊绑定配置")
-                return bindings
-            else:
-                logger.info("绑定配置文件不存在，将创建新的配置")
-                return {}
-        except Exception as e:
-            logger.error(f"加载群聊绑定配置时出错: {str(e)}")
-            return {}
-
-    def save_bindings(self):
-        """保存群聊与服务器的绑定关系到文件"""
-        try:
-            with open(self.bindings_file, 'w', encoding='utf-8') as f:
-                json.dump(self.group_bindings, f, ensure_ascii=False, indent=2)
-            logger.info(f"已保存群聊绑定配置到 {self.bindings_file}")
-        except Exception as e:
-            logger.error(f"保存群聊绑定配置时出错: {str(e)}")
 
     def meta(self) -> PlatformMetadata:
         return PlatformMetadata(
@@ -225,190 +216,47 @@ class MinecraftPlatformAdapter(Platform):
             server_name = data.get("server_name", self.server_name)
 
             # 根据server_type获取对应的服务器类型对象
-            server_class = None
-            if server_type == "vanilla":
-                server_class = Vanilla()
-            elif server_type == "spigot":
-                server_class = Spigot()
-            elif server_type == "fabric":
-                server_class = Fabric()
-            elif server_type == "forge":
-                server_class = Forge()
-            elif server_type == "neoforge":
-                server_class = Neoforge()
-            else:
-                server_class = Vanilla()  # 默认使用vanilla类型
+            server_class = self.message_handler.get_server_class(server_type)
 
             # 获取关联的群聊列表
-            bound_groups = self.group_bindings.get(server_name, [])
+            bound_groups = self.binding_manager.get_bound_groups(server_name)
             if not bound_groups:
                 logger.warning(f"服务器 {server_name} 没有关联的群聊，消息将不会被转发")
                 return
-            
-            player_data = data.get("player", {})
-            player_name = player_data.get("nickname", player_data.get("display_name", "未知玩家"))
-            message_text = data.get("message", "")
-
-            logger.info(f"{player_name}: {message_text}")
 
             # 处理玩家聊天消息
             if event_name == server_class.chat:
-                # 处理以"#qq"开头的消息，转发到QQ群
-                if message_text.startswith("#qq"):
-                    message_text = message_text[3:].strip()
-                    # 构建转发到QQ的消息
-                    qq_message = f"{self.qq_message_prefix} {player_name}: {message_text}"
-
-                    # 转发到关联的群聊
-                    if bound_groups:
-                        await self.send_to_bound_groups(bound_groups, qq_message)
-                    else:
-                        logger.warning(f"没有找到绑定的群聊，无法转发消息: {qq_message}")
-                        await self.send_mc_message("没有找到绑定的群聊，无法转发消息。请先使用/mcbind命令绑定群聊。")
-
-                # 处理以"#astr"开头的消息，作为AstrBot指令处理
-                elif message_text.startswith("#astr"):
-                    command_text = message_text[5:].strip()  # 去掉"#astr"前缀
-                    if not command_text:
-                        # 如果没有指令内容，发送帮助信息
-                        help_message = "请输入要执行的AstrBot指令，例如：#astr help"
-                        await self.send_mc_message(help_message)
-                        return
-
-                    try:
-                        # 创建一个虚拟的消息事件，用于执行指令
-                        abm = AstrBotMessage()
-                        abm.type = MessageType.FRIEND_MESSAGE  # 使用私聊类型，避免群聊权限问题
-                        abm.message_str = command_text
-                        abm.sender = MessageMember(
-                            user_id=f"minecraft_{player_name}",
-                            nickname=player_name
-                        )
-                        abm.message = [Plain(text=command_text)]
-                        abm.raw_message = {"content": command_text}
-                        abm.self_id = f"minecraft_{self.server_name}"
-                        abm.session_id = f"minecraft_{player_name}"
-                        abm.message_id = str(uuid.uuid4())
-
-                        # 创建消息事件
-                        message_event = MinecraftMessageEvent(
-                            message_str=command_text,
-                            message_obj=abm,
-                            platform_meta=self.meta(),
-                            session_id=f"minecraft_{player_name}",
-                            adapter=self
-                        )
-
-                        # 设置回调函数，将AstrBot的响应发送回Minecraft
-                        async def on_response(response_message):
-                            await self.send_mc_message(response_message)
-
-                        message_event.on_response = on_response
-
-                        # 提交事件到AstrBot处理
-                        self.commit_event(message_event)
-                    except Exception as e:
-                        logger.error(f"执行AstrBot指令时出错: {str(e)}")
-                        await self.send_mc_message(f"执行指令时出错: {str(e)}")
-                # 重启ntqq解决腾讯踢人问题
-                elif message_text.startswith("#重启qq"):
-                    try:
-                        # 查找napcat进程并终止
-                        napcat_process_names = ["NapCatWinBootMain.exe"]
-                        killed_processes = []
-                        
-                        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
-                            try:
-                                # 匹配进程名
-                                for proc_name in napcat_process_names:
-                                    if proc_name.lower() in proc.info['name'].lower():
-                                        proc.kill()
-                                        killed_processes.append(proc.info)
-                                        logger.info(f"已终止进程: {proc.info['name']}, PID: {proc.info['pid']}")
-                                
-                                # 也检查命令行参数中是否包含napcat
-                                if proc.info['cmdline'] and any("napcat" in cmd.lower() for cmd in proc.info['cmdline']):
-                                    proc.kill()
-                                    killed_processes.append(proc.info)
-                                    logger.info(f"已终止包含napcat的进程: {proc.info['name']}, PID: {proc.info['pid']}")
-                            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess) as e:
-                                logger.error(f"检查进程时出错: {str(e)}")
-                        
-                        # 启动napcat应用程序
-                        napcat_bat_path = "C:\\Users\\rog1\\Desktop\\NapCat.Shell\\Napcatstart.bat"  # 批处理文件路径
-                        napcat_dir = os.path.dirname(napcat_bat_path)  # 获取批处理文件所在目录
-                        
-                        if os.path.exists(napcat_bat_path):
-                            # 切换到批处理文件所在目录然后执行
-                            cmd = f'cd /d "{napcat_dir}" && "{napcat_bat_path}"'
-                            process = subprocess.Popen(
-                                cmd,
-                                shell=True,
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE,
-                                creationflags=subprocess.CREATE_NEW_CONSOLE
-                            )
-                            # 发送成功消息
-                            await self.send_mc_message("NapCat重启命令已执行，正在重新启动...")
-                            logger.info(f"NapCat重启命令已执行，使用命令: {cmd}")
-                        else:
-                            await self.send_mc_message(f"未找到NapCat启动脚本: {napcat_bat_path}")
-                            logger.error(f"未找到NapCat启动脚本: {napcat_bat_path}")
-                    except Exception as e:
-                        error_message = f"重启NapCat时出错: {str(e)}"
-                        await self.send_mc_message(error_message)
-                        logger.error(error_message)
+                handled = await self.message_handler.handle_chat_message(
+                    data=data,
+                    server_class=server_class,
+                    bound_groups=bound_groups,
+                    send_to_groups_callback=self.send_to_bound_groups,
+                    send_mc_message_callback=self.send_mc_message,
+                    commit_event_callback=self.commit_event,
+                    platform_meta=self.meta()
+                )
+                
+                # 设置adapter引用
+                if hasattr(self.message_handler, '_last_event'):
+                    self.message_handler._last_event.adapter = self
 
             # 处理玩家加入/退出消息
-            if self.enable_join_quit and event_name:
-                if event_name == server_class.join:
-                    player_data = data.get("player", {})
-                    player_name = player_data.get("nickname", player_data.get("display_name", "未知玩家"))
-                    
-                    # 检查是否为假人
-                    if self.is_bot_player(player_name):
-                        return
-                        
-                    join_message = f"{self.qq_message_prefix} 玩家 {player_name} 加入了服务器"
-
-                    # 转发到关联的群聊
-                    await self.send_to_bound_groups(bound_groups, join_message)
-
-                elif event_name == server_class.quit:
-                    player_data = data.get("player", {})
-                    player_name = player_data.get("nickname", player_data.get("display_name", "未知玩家"))
-                    
-                    # 检查是否为假人
-                    if self.is_bot_player(player_name):
-                        return
-                        
-                    quit_message = f"{self.qq_message_prefix} 玩家 {player_name} 离开了服务器"
-
-                    # 转发到关联的群聊
-                    await self.send_to_bound_groups(bound_groups, quit_message)
+            await self.message_handler.handle_player_join_quit(
+                data=data,
+                event_name=event_name,
+                server_class=server_class,
+                bound_groups=bound_groups,
+                send_to_groups_callback=self.send_to_bound_groups
+            )
 
             # 处理玩家死亡消息
-            if hasattr(server_class, 'death') and event_name == server_class.death:
-                player_data = data.get("player", {})
-                player_name = player_data.get("nickname", player_data.get("display_name", "未知玩家"))
-                
-                # 检查是否为假人
-                if self.is_bot_player(player_name):
-                    return
-                    
-                death_reason = data.get("message", "未知原因")
-
-                # 构建死亡位置信息（如果服务器类型支持位置信息）
-                death_location = ""
-                if "block_x" in server_class.player and "block_y" in server_class.player and "block_z" in server_class.player:
-                    death_location = f"位置：x:{player_data.get('block_x')},y:{player_data.get('block_y')},z:{player_data.get('block_z')}"
-
-                death_message = f"{self.qq_message_prefix} 玩家 {player_name} 死亡了，原因：{death_reason}"
-                if death_location:
-                    death_message += f"，{death_location}"
-
-                # 转发到关联的群聊
-                await self.send_to_bound_groups(bound_groups, death_message)
+            await self.message_handler.handle_player_death(
+                data=data,
+                event_name=event_name,
+                server_class=server_class,
+                bound_groups=bound_groups,
+                send_to_groups_callback=self.send_to_bound_groups
+            )
 
         except json.JSONDecodeError:
             logger.error(f"无法解析JSON消息: {message}")
@@ -532,53 +380,25 @@ class MinecraftPlatformAdapter(Platform):
             await self.websocket.close()
         logger.info("Minecraft平台适配器已被优雅地关闭")
 
-    # 绑定和解绑群聊的方法
+    # 绑定和解绑群聊的方法（委托给GroupBindingManager）
     async def bind_group(self, group_id: str, server_name: str = None) -> bool:
         """绑定群聊与Minecraft服务器"""
         if server_name is None:
             server_name = self.server_name
-
-        if server_name not in self.group_bindings:
-            self.group_bindings[server_name] = []
-
-        if group_id in self.group_bindings[server_name]:
-            return False  # 已经绑定
-
-        self.group_bindings[server_name].append(group_id)
-        self.save_bindings()
-        return True
+        return self.binding_manager.bind_group(group_id, server_name)
 
     async def unbind_group(self, group_id: str, server_name: str = None) -> bool:
         """解除群聊与Minecraft服务器的绑定"""
         if server_name is None:
             server_name = self.server_name
-
-        if server_name in self.group_bindings and group_id in self.group_bindings[server_name]:
-            self.group_bindings[server_name].remove(group_id)
-            self.save_bindings()
-            return True
-        return False
+        return self.binding_manager.unbind_group(group_id, server_name)
 
     def is_group_bound(self, group_id: str, server_name: str = None) -> bool:
         """检查群聊是否与Minecraft服务器绑定"""
         if server_name is None:
             server_name = self.server_name
-
-        return server_name in self.group_bindings and group_id in self.group_bindings[server_name]
+        return self.binding_manager.is_group_bound(group_id, server_name)
 
     def is_bot_player(self, player_name: str) -> bool:
-        """检查玩家是否为假人"""
-        if not self.filter_bots:
-            return False
-            
-        # 检查前缀
-        for prefix in self.bot_prefix:
-            if player_name.startswith(prefix):
-                return True
-                
-        # 检查后缀
-        for suffix in self.bot_suffix:
-            if player_name.endswith(suffix):
-                return True
-                
-        return False
+        """检查玩家是否为假人（委托给BotFilter）"""
+        return self.bot_filter.is_bot_player(player_name)
