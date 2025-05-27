@@ -2,7 +2,6 @@ import asyncio
 import json
 import os
 import uuid
-import websockets
 from typing import Dict, List, Any, Awaitable
 from pathlib import Path
 import subprocess
@@ -19,6 +18,8 @@ from astrbot import logger
 from ..events.minecraft_event import MinecraftMessageEvent
 from ..config.server_types import Vanilla, Spigot, Fabric, Forge, Neoforge
 from ..managers.group_binding_manager import GroupBindingManager
+from ..managers.websocket_manager import WebSocketManager
+from ..managers.message_sender import MessageSender
 from ..utils.bot_filter import BotFilter
 from ..managers.process_manager import ProcessManager
 from ..handlers.message_handler import MessageHandler
@@ -47,6 +48,9 @@ class MinecraftPlatformAdapter(Platform):
 
         # 上下文引用，用于发送消息
         self.context = None
+        
+        # 插件实例引用，用于访问广播管理器
+        self.plugin_instance = None
 
         # 从配置中获取WebSocket连接信息
         self.ws_url = self.config.get("ws_url", "ws://127.0.0.1:8080/minecraft/ws")
@@ -88,11 +92,17 @@ class MinecraftPlatformAdapter(Platform):
             "Authorization": f"Bearer {self.Authorization}" if self.Authorization else ""  # 添加Bearer前缀
         }
 
-        # 连接状态和重连参数
-        self.connected = False
-        self.websocket = None
-        self.should_reconnect = True  # 是否应该继续尝试重连
-        self.total_retries = 0  # 总重试次数
+        # 初始化WebSocket管理器和消息发送器
+        self.websocket_manager = WebSocketManager(
+            ws_url=self.ws_url,
+            headers=self.headers,
+            reconnect_interval=self.reconnect_interval,
+            max_retries=self.max_retries
+        )
+        self.message_sender = MessageSender(self.websocket_manager)
+        
+        # 设置消息处理回调
+        self.websocket_manager.set_message_handler(self.handle_mc_message)
 
     def meta(self) -> PlatformMetadata:
         return PlatformMetadata(
@@ -104,105 +114,9 @@ class MinecraftPlatformAdapter(Platform):
     async def run(self) -> Awaitable[Any]:
         """启动WebSocket客户端，维持与鹊桥模组的连接"""
         # 创建一个新的任务来启动WebSocket客户端，这样run方法可以立即返回
-        task = asyncio.create_task(self.start_websocket_client())
+        task = asyncio.create_task(self.websocket_manager.start())
         # 返回任务，但不等待它完成
         return task
-
-    async def start_websocket_client(self):
-        """启动WebSocket客户端，维持与鹊桥模组的连接"""
-        retry_count = 0
-        max_retries = self.max_retries
-
-        while self.should_reconnect:
-            try:
-                if not self.connected:
-                    logger.info(f"正在连接到鹊桥模组WebSocket服务器: {self.ws_url}")
-                    
-                    # 记录token使用情况
-                    if not self.Authorization:
-                        logger.warning("未配置Authorization，连接可能不安全")
-
-                    # 尝试建立连接
-                    self.websocket = await websockets.connect(
-                        self.ws_url,
-                        additional_headers=self.headers,
-                        ping_interval=30,  # 保持心跳
-                        ping_timeout=10
-                    )
-
-                    self.connected = True
-                    retry_count = 0  # 重置重试计数
-                    self.total_retries = 0  # 重置总重试次数
-                    logger.info("成功连接到鹊桥模组WebSocket服务器")
-
-                    # 持续接收消息
-                    while True:
-                        try:
-                            message = await self.websocket.recv()
-                            logger.debug(f"原始WebSocket消息: {message}")
-                            await self.handle_mc_message(message)
-                        except websockets.exceptions.ConnectionClosed as e:
-                            logger.warning(f"WebSocket连接已关闭，代码: {e.code}, 原因: {e.reason}")
-                            self.connected = False
-                            self.websocket = None
-                            
-                            # 检查是否是认证错误或其他永久性错误
-                            if e.code == 1008:  # 策略违反（可能是认证失败）
-                                logger.error(f"WebSocket连接因策略违反而关闭，可能是Authorization错误: {e.reason}")
-                                self.should_reconnect = False
-                                break
-                            elif e.code == 1003:  # 不支持的数据
-                                logger.error(f"WebSocket连接因不支持的数据而关闭: {e.reason}")
-                                self.should_reconnect = False
-                                break
-                            elif e.code == 1010:  # 必需的扩展
-                                logger.error(f"WebSocket连接因扩展问题而关闭: {e.reason}")
-                                self.should_reconnect = False
-                                break
-                            
-                            break
-
-            except (websockets.exceptions.ConnectionClosed,
-                    websockets.exceptions.WebSocketException,
-                    ConnectionRefusedError,
-                    asyncio.TimeoutError) as e:
-                self.connected = False
-                self.websocket = None
-                
-                # 检查是否是可能无法恢复的错误
-                if isinstance(e, websockets.exceptions.InvalidStatusCode):
-                    if e.status_code == 401:  # 未授权，可能是token错误
-                        logger.error(f"WebSocket连接未授权(401)，请检查Authorization是否正确。停止重试。")
-                        self.should_reconnect = False
-                        break
-                    elif e.status_code == 403:  # 禁止访问
-                        logger.error(f"WebSocket连接被拒绝(403)，服务器拒绝访问。停止重试。")
-                        self.should_reconnect = False
-                        break
-                    elif e.status_code == 404:  # 路径不存在
-                        logger.error(f"WebSocket连接失败(404)，请检查ws_url是否正确。停止重试。")
-                        self.should_reconnect = False
-                        break
-
-                retry_count += 1
-                self.total_retries += 1
-                wait_time = min(self.reconnect_interval * retry_count, 60)  # 指数退避，最大60秒
-
-                if self.total_retries >= self.max_retries:
-                    logger.error(f"WebSocket连接失败次数已达到最大限制({self.max_retries}次)，停止重试")
-                    self.should_reconnect = False
-                    break
-                elif retry_count > max_retries:
-                    logger.error(f"WebSocket连接失败次数过多({retry_count}次)，将在60秒后重试")
-                    await asyncio.sleep(60)
-                    retry_count = 0
-                else:
-                    logger.error(f"WebSocket连接错误: {e}, 将在{wait_time}秒后尝试重新连接...(第{retry_count}次，总计{self.total_retries}次)")
-                    await asyncio.sleep(wait_time)
-
-            except Exception as e:
-                logger.error(f"WebSocket处理未知错误: {e}")
-                await asyncio.sleep(self.reconnect_interval)
 
     async def handle_mc_message(self, message: str):
         """处理从Minecraft服务器接收到的消息"""
@@ -338,96 +252,19 @@ class MinecraftPlatformAdapter(Platform):
 
     async def send_mc_message(self, message: str, sender: str = None):
         """发送消息到Minecraft服务器"""
-        if not self.connected or not self.websocket:
-            logger.error("无法发送消息：WebSocket未连接")
-            return False
+        return await self.message_sender.send_broadcast_message(message, sender)
 
-        try:
-            # 构建发送到Minecraft的消息
-            if sender:
-                mc_message = f"{sender}: {message}"
-            else:
-                mc_message = f"{message}"
-
-            broadcast_msg = {
-                "api": "broadcast",
-                "data": {
-                    "message": [
-                        {
-                            "type": "text",
-                            "data": {
-                                "text": mc_message
-                            }
-                        }
-                    ]
-                }
-            }
-
-            # 打印要发送的JSON消息，便于调试
-            logger.debug(f"发送的WebSocket消息: {json.dumps(broadcast_msg)}")
-
-            # 发送消息
-            await self.websocket.send(json.dumps(broadcast_msg))
-            return True
-
-        except Exception as e:
-            logger.error(f"发送消息到Minecraft时出错: {str(e)}")
-            return False
-
-    async def send_mc_rich_message(self, text: str, click_url: str, hover_text: str):
+    async def send_mc_rich_message(self, text: str, click_url: str, hover_text: str, color: str = "#E6E6FA"):
         """发送富文本消息到Minecraft服务器"""
-        if not self.connected or not self.websocket:
-            logger.error("无法发送富文本消息：WebSocket未连接")
-            return False
+        return await self.message_sender.send_rich_message(text, click_url, hover_text, color)
 
-        try:
-            # 构建富文本消息
-            broadcast_msg = {
-                "api": "broadcast",
-                "data": {
-                    "message": [
-                        {
-                            "type": "text",
-                            "data": {
-                                "text": text,
-                                "color": "yellow",
-                                "bold": False,
-                                "hover_event": {
-                                    "action": "SHOW_TEXT",
-                                    "text": [
-                                        {
-                                            "text": hover_text,
-                                            "color": "gold",
-                                            "bold": True
-                                        }
-                                    ]
-                                },
-                                "click_event": {
-                                    "action": "OPEN_URL",
-                                    "value": click_url
-                                }
-                            }
-                        }
-                    ]
-                }
-            }
-
-            # 打印要发送的JSON消息，便于调试
-            logger.debug(f"发送的富文本WebSocket消息: {json.dumps(broadcast_msg, ensure_ascii=False)}")
-
-            # 发送消息
-            await self.websocket.send(json.dumps(broadcast_msg))
-            return True
-
-        except Exception as e:
-            logger.error(f"发送富文本消息到Minecraft时出错: {str(e)}")
-            return False
+    async def send_private_message(self, uuid: str, components: List[Dict[str, Any]]):
+        """发送私聊消息到指定玩家"""
+        return await self.message_sender.send_private_message(uuid, components)
 
     async def terminate(self):
         """终止平台适配器"""
-        self.should_reconnect = False
-        if self.websocket:
-            await self.websocket.close()
+        await self.websocket_manager.close()
         logger.info("Minecraft平台适配器已被优雅地关闭")
 
     # 绑定和解绑群聊的方法（委托给GroupBindingManager）
@@ -452,3 +289,8 @@ class MinecraftPlatformAdapter(Platform):
     def is_bot_player(self, player_name: str) -> bool:
         """检查玩家是否为假人（委托给BotFilter）"""
         return self.bot_filter.is_bot_player(player_name)
+
+    @property
+    def connected(self) -> bool:
+        """获取连接状态"""
+        return self.websocket_manager.connected

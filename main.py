@@ -66,6 +66,8 @@ class MCQQPlugin(Star):
 
                 # 设置上下文引用，以便适配器可以使用context.send_message方法
                 self.minecraft_adapter.context = self.context
+                # 设置插件实例引用
+                self.minecraft_adapter.plugin_instance = self
                 break
 
         if not self.minecraft_adapter:

@@ -6,6 +6,7 @@ from pathlib import Path
 from astrbot import logger
 from astrbot.core.star.star_tools import StarTools
 from ..utils.wiki_utils import WikiUtils
+from ..utils.message_builder import MessageBuilder
 
 
 class BroadcastManager:
@@ -32,11 +33,11 @@ class BroadcastManager:
         # 默认的整点广播内容（支持富文本的JSON格式）
         self.hourly_broadcast_content = [
             {
-                "text": "🕐 整点报时！当前时间：{time}",
+                "text": "🐷猪花广播为您服务！🕐现在是{time}。[查看命令指南]",
                 "color": "aqua", 
                 "bold": False,
-                "click_command": "",
-                "hover_text": "🤖 AstrBot 整点报时系统",
+                "click_command": "#命令指南",
+                "hover_text": "🤖 点击查看服务器命令指南",
                 "click_action": "SUGGEST_COMMAND"
             }
         ]
@@ -106,10 +107,10 @@ class BroadcastManager:
             logger.debug("整点广播已关闭，跳过广播")
             return
 
-        # 使用自定义内容或默认内容
-        content = self.custom_broadcast_content or self.hourly_broadcast_content
+        # 整点广播始终使用默认内容
+        content = self.hourly_broadcast_content
         
-        # 发送原有的整点广播消息
+        # 发送整点广播消息
         success = await broadcast_callback(content)
         if success:
             logger.info("整点广播已成功执行")
@@ -129,7 +130,7 @@ class BroadcastManager:
                 # 构建Wiki广播内容
                 wiki_broadcast_content = [{
                     "text": f"你知道吗：{title} - {content}",
-                    "color": "yellow",
+                    "color": "#E6E6FA",
                     "bold": False,
                     "click_command": wiki_url,
                     "hover_text": "🎓 来自 Minecraft Wiki 的随机知识，点击查看完整页面",
@@ -137,7 +138,7 @@ class BroadcastManager:
                 }]
                 
                 # 等待一小段时间再发送Wiki内容，避免消息过于密集
-                await asyncio.sleep(2.0)
+                await asyncio.sleep(0.1)
                 
                 # 发送Wiki广播
                 wiki_success = await broadcast_callback(wiki_broadcast_content)
@@ -268,10 +269,15 @@ class BroadcastManager:
     
     def _format_broadcast_config_display(self) -> str:
         """格式化显示当前广播配置"""
-        # 使用自定义内容或默认内容
-        content = self.custom_broadcast_content or self.hourly_broadcast_content
+        # 显示自定义内容（如果有的话）
+        if self.custom_broadcast_content:
+            content = self.custom_broadcast_content
+            title = "自定义私聊内容"
+        else:
+            content = self.hourly_broadcast_content
+            title = "默认整点广播内容"
         
-        lines = []
+        lines = [f"📋 {title}:"]
         for i, component in enumerate(content, 1):
             line = f"  {i}. 文本: {component['text']}"
             if component['color'] != 'white':
@@ -290,8 +296,9 @@ class BroadcastManager:
     
     async def send_rich_broadcast(self, adapter, components: List[Dict[str, Any]]) -> bool:
         """发送支持富文本格式的广播消息"""
-        if not adapter.connected or not adapter.websocket:
-            logger.error("无法发送广播：WebSocket未连接")
+        if not adapter.connected:
+            await adapter.websocket_manager.start()
+            logger.error("无法发送广播：WebSocket未连接，正在尝试重连")
             return False
 
         try:
@@ -308,57 +315,34 @@ class BroadcastManager:
         total_components = len(components)
         
         # 逐个发送每个组件
-        for i, component in enumerate(components):
+        for i, component_config in enumerate(components):
             # 处理时间变量替换
             current_time = datetime.datetime.now().strftime("%H:%M")
-            text_content = component["text"].format(time=current_time)
+            component_config = component_config.copy()  # 创建副本避免修改原始配置
+            component_config["text"] = component_config["text"].format(time=current_time)
             
-            # 构建单个消息组件
-            msg_component = {
-                "type": "text",
-                "data": {
-                    "text": text_content,
-                    "color": component.get("color", "white"),
-                    "bold": component.get("bold", False)
-                }
-            }
+            # 使用MessageBuilder创建组件
+            component = MessageBuilder.create_component_from_config(component_config)
             
-            # 添加悬浮事件（如果有）
-            if component.get("hover_text"):
-                msg_component["data"]["hover_event"] = {
-                    "action": "SHOW_TEXT",
-                    "text": [
-                        {
-                            "text": component["hover_text"],
-                            "color": "yellow",
-                            "bold": True
-                        }
-                    ]
-                }
+            # 清理组件
+            component = MessageBuilder.clean_component(component)
             
-            # 添加点击事件（如果有）
-            if component.get("click_command"):
-                click_action = component.get("click_action", "SUGGEST_COMMAND")
-                msg_component["data"]["click_event"] = {
-                    "action": click_action,
-                    "value": component["click_command"]
-                }
-
-            # 构建单条广播消息
-            broadcast_msg = {
-                "api": "broadcast",
-                "data": {
-                    "message": [msg_component]  # 单个组件的数组
-                }
-            }
-
-            # 打印要发送的JSON消息，便于调试
-            logger.debug(f"发送第 {i+1}/{total_components} 条广播消息: {json.dumps(broadcast_msg, ensure_ascii=False)}")
+            # 验证组件
+            if not MessageBuilder.validate_component(component):
+                logger.warning(f"跳过无效的广播组件: {component_config}")
+                continue
+            
+            # 创建广播消息
+            broadcast_msg = MessageBuilder.create_broadcast_message([component])
+            
+            # 记录日志
+            MessageBuilder.log_message(broadcast_msg, f"第 {i+1}/{total_components} 条广播消息")
 
             try:
                 # 发送单条消息
-                await adapter.websocket.send(json.dumps(broadcast_msg))
-                success_count += 1
+                success = await adapter.websocket_manager.send_message(broadcast_msg)
+                if success:
+                    success_count += 1
                 
                 # 如果不是最后一条消息，添加延迟避免发送过快
                 if i < total_components - 1:
@@ -381,60 +365,24 @@ class BroadcastManager:
     
     async def send_custom_rich_broadcast(self, adapter, text_content: str, click_value: str, hover_text: str, click_action: str = "SUGGEST_COMMAND") -> bool:
         """发送自定义富文本广播消息"""
-        if not adapter.connected or not adapter.websocket:
+        if not adapter.connected:
             logger.error("无法发送自定义广播：WebSocket未连接")
             return False
 
         try:
-            # 验证点击事件类型
-            if click_action not in ["SUGGEST_COMMAND", "RUN_COMMAND", "OPEN_URL"]:
-                click_action = "SUGGEST_COMMAND"
-            
-            # 构建自定义富文本广播消息
-            broadcast_msg = {
-                "api": "broadcast",
-                "data": {
-                    "message": [
-                        {
-                            "type": "text",
-                            "data": {
-                                "text": "[管理员公告] ",
-                                "color": "red",
-                                "bold": True
-                            }
-                        },
-                        {
-                            "type": "text", 
-                            "data": {
-                                "text": text_content,
-                                "color": "white",
-                                "bold": False,
-                                "hover_event": {
-                                    "action": "SHOW_TEXT",
-                                    "text": [
-                                        {
-                                            "text": hover_text,
-                                            "color": "gold",
-                                            "bold": True
-                                        }
-                                    ]
-                                },
-                                "click_event": {
-                                    "action": click_action,
-                                    "value": click_value
-                                }
-                            }
-                        }
-                    ]
-                }
-            }
+            # 使用MessageBuilder创建管理员公告消息
+            broadcast_msg = MessageBuilder.create_admin_announcement(
+                text=text_content,
+                click_value=click_value,
+                hover_text=hover_text,
+                click_action=click_action
+            )
 
-            # 打印要发送的JSON消息，便于调试
-            logger.debug(f"发送的自定义富文本广播消息: {json.dumps(broadcast_msg, ensure_ascii=False)}")
+            # 记录日志
+            MessageBuilder.log_message(broadcast_msg, "自定义富文本广播消息")
 
             # 发送消息
-            await adapter.websocket.send(json.dumps(broadcast_msg))
-            return True
+            return await adapter.websocket_manager.send_message(broadcast_msg)
 
         except Exception as e:
             logger.error(f"发送自定义富文本广播消息时出错: {str(e)}")
@@ -442,4 +390,22 @@ class BroadcastManager:
     
     def is_enabled(self) -> bool:
         """检查整点广播是否启用"""
-        return self.hourly_broadcast_enabled 
+        return self.hourly_broadcast_enabled
+    
+    def get_broadcast_content_for_private_message(self) -> List[Dict[str, Any]]:
+        """获取用于私聊的广播内容"""
+        # 如果有自定义内容，使用自定义内容
+        if self.custom_broadcast_content:
+            return self.custom_broadcast_content
+        
+        # 如果没有自定义内容，返回默认的命令指南
+        default_guide_content = [{
+            "text": "📋 服务器命令指南\n\n🎮 游戏相关命令：\n• #qq [消息] - 发送消息到QQ群\n• #wiki [词条] - 查询Minecraft Wiki\n• #astr [指令] - 执行AstrBot指令\n\n🔧 管理命令：\n• #重启qq - 重启QQ连接\n\n💡 提示：在聊天框中输入以上命令即可使用",
+            "color": "yellow",
+            "bold": False,
+            "click_command": "",
+            "hover_text": "服务器命令使用指南",
+            "click_action": "SUGGEST_COMMAND"
+        }]
+        
+        return default_guide_content 

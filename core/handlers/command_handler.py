@@ -68,14 +68,14 @@ class CommandHandler:
 
         # 如果未连接，尝试手动启动连接
         if not adapter.connected:
-            # 强制重置连接状态
-            adapter.connected = False
-            adapter.websocket = None
-            adapter.should_reconnect = True
-            adapter.total_retries = 0
+            # 通过websocket_manager正确重置连接状态
+            adapter.websocket_manager.connected = False
+            adapter.websocket_manager.websocket = None
+            adapter.websocket_manager.should_reconnect = True
+            adapter.websocket_manager.total_retries = 0
             
             # 启动新的重连任务
-            asyncio.create_task(adapter.start_websocket_client())
+            asyncio.create_task(adapter.websocket_manager.start())
             return "⏳ Minecraft服务器未连接，正在尝试连接..."
         
         # 生成状态消息
