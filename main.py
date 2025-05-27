@@ -16,7 +16,7 @@ from .core.managers.broadcast_manager import BroadcastManager
 # 导入命令处理器
 from .core.handlers.command_handler import CommandHandler
 
-@register("mcqq", "kterna", "通过鹊桥模组实现Minecraft平台适配器，以及mcqq互联的插件", "1.5.0", "https://github.com/kterna/astrbot_plugin_mcqq")
+@register("mcqq", "kterna", "通过鹊桥模组实现Minecraft平台适配器，以及mcqq互联的插件", "1.5.1", "https://github.com/kterna/astrbot_plugin_mcqq")
 class MCQQPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
