@@ -1,7 +1,7 @@
 import asyncio
 import re
 import aiohttp
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from astrbot import logger
 
 
@@ -53,6 +53,43 @@ class WikiUtils:
             
         except Exception as e:
             logger.error(f"获取随机Wiki内容时出错: {str(e)}")
+            return None
+    
+    @staticmethod
+    async def get_wiki_broadcast_content() -> Optional[List[Dict[str, Any]]]:
+        """
+        获取格式化的Wiki广播内容
+        
+        Returns:
+            Optional[List[Dict[str, Any]]]: 格式化的Wiki广播内容列表，失败时返回None
+        """
+        try:
+            wiki_data = await WikiUtils.get_random_wiki_content()
+            if wiki_data:
+                title = wiki_data["title"]
+                content = wiki_data["content"]
+                
+                # 构建Wiki URL
+                wiki_url = f"https://zh.minecraft.wiki/w/{title}"
+                
+                # 构建Wiki广播内容
+                wiki_broadcast_content = [{
+                    "text": f"你知道吗：{title} - {content}",
+                    "color": "#E6E6FA",
+                    "bold": False,
+                    "click_command": wiki_url,
+                    "hover_text": "🎓 来自 Minecraft Wiki 的随机知识，点击查看完整页面",
+                    "click_action": "OPEN_URL"
+                }]
+                
+                logger.debug(f"成功创建Wiki广播内容: {title}")
+                return wiki_broadcast_content
+            else:
+                logger.warning("获取Wiki随机内容失败")
+                return None
+                
+        except Exception as e:
+            logger.error(f"获取Wiki广播内容时出错: {str(e)}")
             return None
     
     @staticmethod

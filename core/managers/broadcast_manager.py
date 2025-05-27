@@ -119,24 +119,8 @@ class BroadcastManager:
         
         # 获取并发送随机Wiki内容
         try:
-            wiki_data = await WikiUtils.get_random_wiki_content()
-            if wiki_data:
-                title = wiki_data["title"]
-                content = wiki_data["content"]
-                
-                # 构建Wiki URL
-                wiki_url = f"https://zh.minecraft.wiki/w/{title}"
-                
-                # 构建Wiki广播内容
-                wiki_broadcast_content = [{
-                    "text": f"你知道吗：{title} - {content}",
-                    "color": "#E6E6FA",
-                    "bold": False,
-                    "click_command": wiki_url,
-                    "hover_text": "🎓 来自 Minecraft Wiki 的随机知识，点击查看完整页面",
-                    "click_action": "OPEN_URL"
-                }]
-                
+            wiki_broadcast_content = await WikiUtils.get_wiki_broadcast_content()
+            if wiki_broadcast_content:
                 # 等待一小段时间再发送Wiki内容，避免消息过于密集
                 await asyncio.sleep(0.1)
                 

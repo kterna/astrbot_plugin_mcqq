@@ -1,6 +1,6 @@
-import json
+# filepath: e:\github desktop\AstrBot\data\plugins\astrbot_plugin_mcqq\core\handlers\message_handler.py
 import uuid
-from typing import Dict, Any, List, Callable, Awaitable, Optional
+from typing import Dict, Any, List, Callable, Awaitable
 from astrbot.api.platform import AstrBotMessage, MessageMember, MessageType
 from astrbot.api.message_components import Plain
 from astrbot import logger
@@ -9,84 +9,11 @@ from ..events.minecraft_event import MinecraftMessageEvent
 from ..config.server_types import Vanilla, Spigot, Fabric, Forge, Neoforge
 from ..utils.bot_filter import BotFilter
 from ..managers.process_manager import ProcessManager
-from ..utils.wiki_utils import WikiUtils
-
-
-class CommandHandler:
-    """指令处理器基类"""
-    def __init__(self, message_handler):
-        self.message_handler = message_handler
-
-    async def handle(self, 
-                    message_text: str,
-                    data: Dict[str, Any],
-                    server_class,
-                    bound_groups: List[str],
-                    send_to_groups_callback: Callable[[List[str], str], Awaitable[None]],
-                    send_mc_message_callback: Callable[[str], Awaitable[None]],
-                    commit_event_callback: Callable[[MinecraftMessageEvent], None],
-                    platform_meta,
-                    adapter=None) -> bool:
-        """处理指令，返回True表示已处理"""
-        raise NotImplementedError
-
-
-class DecoratorCommandHandler(CommandHandler):
-    """装饰器指令处理器"""
-    def __init__(self, message_handler, func, prefix: Optional[str], exact_match: bool, priority: int):
-        super().__init__(message_handler)
-        self.func = func
-        self.prefix = prefix
-        self.exact_match = exact_match
-        self.priority = priority
-
-    def matches(self, message_text: str) -> bool:
-        """检查消息是否匹配此处理器"""
-        if not message_text.startswith("#"):
-            return False
-            
-        if self.prefix is None:
-            # 通用处理器，匹配所有#开头的消息
-            return True
-            
-        command_part = message_text[1:]  # 去掉#
-        
-        if self.exact_match:
-            return command_part == self.prefix
-        else:
-            return command_part.startswith(self.prefix)
-
-    async def handle(self, 
-                    message_text: str,
-                    data: Dict[str, Any],
-                    server_class,
-                    bound_groups: List[str],
-                    send_to_groups_callback: Callable[[List[str], str], Awaitable[None]],
-                    send_mc_message_callback: Callable[[str], Awaitable[None]],
-                    commit_event_callback: Callable[[MinecraftMessageEvent], None],
-                    platform_meta,
-                    adapter=None) -> bool:
-        """处理指令"""
-        if not self.matches(message_text):
-            return False
-            
-        # 调用装饰的函数
-        kwargs = {
-            'server_class': server_class,
-            'bound_groups': bound_groups,
-            'send_to_groups_callback': send_to_groups_callback,
-            'send_mc_message_callback': send_mc_message_callback,
-            'commit_event_callback': commit_event_callback,
-            'platform_meta': platform_meta,
-            'adapter': adapter
-        }
-        
-        result = await self.func(message_text, data, **kwargs)
-        return result if result is not None else True
+from ..commands.command_factory import CommandFactory
 
 
 class MessageHandler:
-    """Minecraft消息处理器"""
+    """Minecraft消息处理器 - 重构后版本，专注于消息路由和基础处理"""
     
     def __init__(self, 
                  server_name: str,
@@ -110,172 +37,9 @@ class MessageHandler:
         self.bot_filter = bot_filter
         self.process_manager = process_manager
         
-        # 指令处理器注册表
-        self.command_handlers: List[CommandHandler] = []
-        
-        # 注册默认指令处理器
-        self._register_default_handlers()
-        
-    def register_command_handler(self, handler: CommandHandler):
-        """
-        注册指令处理器
-        
-        Args:
-            handler: 指令处理器实例
-        """
-        self.command_handlers.append(handler)
-        # 按优先级排序，优先级高的在前面
-        self.command_handlers.sort(key=lambda h: getattr(h, 'priority', 0), reverse=True)
-        
-    def command_handler(self, prefix: str = None, exact_match: bool = False, priority: int = 0):
-        """
-        指令处理器装饰器
-        
-        Args:
-            prefix: 指令前缀，None表示匹配所有以#开头的指令
-            exact_match: 是否精确匹配
-            priority: 优先级，数字越大优先级越高
-        """
-        def decorator(func):
-            handler = DecoratorCommandHandler(
-                self, func, prefix, exact_match, priority
-            )
-            self.command_handlers.append(handler)
-            # 按优先级排序，优先级高的在前面
-            self.command_handlers.sort(key=lambda h: h.priority, reverse=True)
-            return func
-        return decorator
-        
-    def _register_default_handlers(self):
-        """注册默认的指令处理器"""
-        
-        @self.command_handler(prefix="qq", priority=100)
-        async def handle_qq_command(message_text: str, data: Dict[str, Any], **kwargs):
-            """处理QQ转发指令"""
-            player_data = data.get("player", {})
-            player_name = player_data.get("nickname", player_data.get("display_name", "未知玩家"))
-            
-            content = message_text[3:].strip()
-            qq_message = f"{self.qq_message_prefix} {player_name}: {content}"
-
-            bound_groups = kwargs.get('bound_groups', [])
-            send_to_groups_callback = kwargs.get('send_to_groups_callback')
-            send_mc_message_callback = kwargs.get('send_mc_message_callback')
-
-            if bound_groups:
-                await send_to_groups_callback(bound_groups, qq_message)
-            else:
-                logger.warning(f"没有找到绑定的群聊，无法转发消息: {qq_message}")
-                await send_mc_message_callback("没有找到绑定的群聊，无法转发消息。请先使用/mcbind命令绑定群聊。")
-            return True
-
-        @self.command_handler(prefix="命令指南", exact_match=True, priority=100)
-        async def handle_command_guide(message_text: str, data: Dict[str, Any], **kwargs):
-            """处理命令指南指令"""
-            player_data = data.get("player", {})
-            player_uuid = player_data.get("uuid")
-            adapter = kwargs.get('adapter')
-            send_mc_message_callback = kwargs.get('send_mc_message_callback')
-            
-            if not player_uuid:
-                await send_mc_message_callback("无法获取玩家UUID，无法发送私聊消息")
-                return True
-            
-            if adapter and hasattr(adapter, 'send_private_message'):
-                try:
-                    plugin_instance = getattr(adapter, 'plugin_instance', None)
-                    
-                    if plugin_instance and hasattr(plugin_instance, 'broadcast_manager'):
-                        broadcast_content = plugin_instance.broadcast_manager.get_broadcast_content_for_private_message()
-                        await adapter.send_private_message(player_uuid, broadcast_content)
-                    else:
-                        await send_mc_message_callback("无法获取广播管理器，请联系管理员")
-                except Exception as e:
-                    logger.error(f"发送命令指南私聊时出错: {str(e)}")
-                    await send_mc_message_callback(f"发送命令指南时出错: {str(e)}")
-            else:
-                await send_mc_message_callback("当前不支持私聊功能")
-            return True
-
-        @self.command_handler(prefix="重启qq", priority=100)
-        async def handle_restart_qq(message_text: str, data: Dict[str, Any], **kwargs):
-            """处理重启QQ指令"""
-            send_mc_message_callback = kwargs.get('send_mc_message_callback')
-            result = await self.process_manager.restart_napcat()
-            await send_mc_message_callback(result["message"])
-            return True
-
-        @self.command_handler(prefix="wiki", priority=100)
-        async def handle_wiki_command(message_text: str, data: Dict[str, Any], **kwargs):
-            """处理Wiki查询指令"""
-            wiki_title = message_text[5:].strip()
-            send_mc_message_callback = kwargs.get('send_mc_message_callback')
-            adapter = kwargs.get('adapter')
-            
-            try:
-                if not wiki_title:
-                    wiki_data = await WikiUtils.get_random_wiki_content()
-                else:
-                    wiki_data = await WikiUtils.get_wiki_content_by_title(wiki_title)
-                
-                if wiki_data:
-                    title = wiki_data["title"]
-                    content = wiki_data["content"]
-                    wiki_url = f"https://zh.minecraft.wiki/w/{title}"
-                    
-                    if not wiki_title:
-                        display_text = f"你知道吗：{title} - {content}"
-                    else:
-                        display_text = f"📖 {title}: {content}"
-                    
-                    hover_text = f"🎓 点击查看 {title} 的完整Wiki页面"
-                    
-                    if adapter and hasattr(adapter, 'send_mc_rich_message'):
-                        await adapter.send_mc_rich_message(display_text, wiki_url, hover_text)
-                    else:
-                        fallback_message = f"{display_text}\n🔗 查看完整页面: {wiki_url}"
-                        await send_mc_message_callback(fallback_message)
-                else:
-                    if not wiki_title:
-                        await send_mc_message_callback("无法获取随机Wiki内容，请稍后重试")
-                    else:
-                        await send_mc_message_callback(f"无法获取词条 {wiki_title} 的信息，请检查词条名称是否正确")
-            except Exception as e:
-                logger.error(f"处理Wiki查询时出错: {str(e)}")
-                await send_mc_message_callback(f"Wiki查询出错: {str(e)}")
-            return True
-
-        @self.command_handler(prefix=None, priority=0)  # 最低优先级，处理所有其他#开头的指令
-        async def handle_astrbot_command(message_text: str, data: Dict[str, Any], **kwargs):
-            """处理AstrBot通用指令"""
-            command_text = message_text[1:].strip()
-            player_data = data.get("player", {})
-            player_name = player_data.get("nickname", player_data.get("display_name", "未知玩家"))
-            
-            send_mc_message_callback = kwargs.get('send_mc_message_callback')
-            commit_event_callback = kwargs.get('commit_event_callback')
-            platform_meta = kwargs.get('platform_meta')
-            adapter = kwargs.get('adapter')
-            
-            if not command_text:
-                help_message = """请输入要执行的AstrBot指令，例如：
-#help - 显示AstrBot帮助
-#qq 消息内容 - 发送消息到QQ群
-#wiki 词条名称 - 查询Minecraft Wiki
-#重启qq - 重启QQ"""
-                await send_mc_message_callback(help_message)
-                return True
-
-            try:
-                message_event = await self.create_astrbot_command_event(
-                    command_text, player_name, platform_meta, send_mc_message_callback, adapter
-                )
-                commit_event_callback(message_event)
-            except Exception as e:
-                logger.error(f"执行AstrBot指令时出错: {str(e)}")
-                await send_mc_message_callback(f"执行指令时出错: {str(e)}")
-            return True
-    
+        # 使用命令工厂创建命令注册表
+        self.command_registry = CommandFactory.setup_command_registry(self)
+               
     def get_server_class(self, server_type: str):
         """根据服务器类型获取对应的服务器类型对象"""
         server_classes = {
@@ -297,7 +61,7 @@ class MessageHandler:
                                 platform_meta,
                                 adapter=None) -> bool:
         """
-        处理聊天消息
+        处理聊天消息 - 简化版本，主要负责路由
         
         Args:
             data: 消息数据
@@ -316,26 +80,24 @@ class MessageHandler:
         player_name = player_data.get("nickname", player_data.get("display_name", "未知玩家"))
         message_text = data.get("message", "")
 
-        logger.info(f"{player_name}: {message_text}")
+        logger.debug(f"收到玩家消息 - {player_name}: {message_text}")
 
         # 如果不是以#开头的消息，直接返回False
         if not message_text.startswith("#"):
             return False
 
-        # 遍历所有注册的指令处理器
-        for handler in self.command_handlers:
-            try:
-                if await handler.handle(
-                    message_text, data, server_class, bound_groups,
-                    send_to_groups_callback, send_mc_message_callback,
-                    commit_event_callback, platform_meta, adapter
-                ):
-                    return True
-            except Exception as e:
-                logger.error(f"指令处理器 {handler.__class__.__name__} 处理消息时出错: {str(e)}")
-                continue
-
-        return False
+        # 委托给命令注册表处理
+        return await self.command_registry.handle_command(
+            message_text=message_text,
+            data=data,
+            server_class=server_class,
+            bound_groups=bound_groups,
+            send_to_groups_callback=send_to_groups_callback,
+            send_mc_message_callback=send_mc_message_callback,
+            commit_event_callback=commit_event_callback,
+            platform_meta=platform_meta,
+            adapter=adapter
+        )
     
     async def create_astrbot_command_event(self, 
                                          command_text: str, 
@@ -369,7 +131,8 @@ class MessageHandler:
 
         # 设置回调函数，将AstrBot的响应发送回Minecraft
         async def on_response(response_message):
-            await send_mc_message_callback(response_message)
+            if response_message and response_message.strip():
+                await send_mc_message_callback(response_message)
 
         message_event.on_response = on_response
         
@@ -402,21 +165,26 @@ class MessageHandler:
             
         player_data = data.get("player", {})
         player_name = player_data.get("nickname", player_data.get("display_name", "未知玩家"))
-        
-        # 检查是否为假人
-        if self.bot_filter.is_bot_player(player_name):
+
+        # 过滤假人
+        if self.bot_filter.is_bot(player_name):
+            logger.debug(f"过滤假人 {player_name} 的进入/退出消息")
             return False
-        
-        if event_name == server_class.join:
-            join_message = f"{self.qq_message_prefix} 玩家 {player_name} 加入了服务器"
-            await send_to_groups_callback(bound_groups, join_message)
-            return True
-        elif event_name == server_class.quit:
-            quit_message = f"{self.qq_message_prefix} 玩家 {player_name} 离开了服务器"
-            await send_to_groups_callback(bound_groups, quit_message)
-            return True
-            
-        return False
+
+        # 构造进入/退出消息
+        if event_name == "player_join":
+            message = f"{self.qq_message_prefix} 🟢 {player_name} 加入了游戏"
+        elif event_name == "player_quit":
+            message = f"{self.qq_message_prefix} 🔴 {player_name} 离开了游戏"
+        else:
+            return False
+
+        # 发送到绑定的QQ群
+        if bound_groups:
+            await send_to_groups_callback(bound_groups, message)
+            logger.info(f"玩家 {player_name} {event_name} 消息已发送到QQ群")
+
+        return True
     
     async def handle_player_death(self, 
                                 data: Dict[str, Any], 
@@ -437,30 +205,24 @@ class MessageHandler:
         Returns:
             bool: 是否处理了消息
         """
-        if not hasattr(server_class, 'death') or event_name != server_class.death:
+        if event_name != "player_death":
             return False
             
         player_data = data.get("player", {})
         player_name = player_data.get("nickname", player_data.get("display_name", "未知玩家"))
-        
-        # 检查是否为假人
-        if self.bot_filter.is_bot_player(player_name):
+        death_message = data.get("death_message", f"{player_name} 死了")
+
+        # 过滤假人
+        if self.bot_filter.is_bot(player_name):
+            logger.debug(f"过滤假人 {player_name} 的死亡消息")
             return False
-            
-        death_reason = data.get("message", "未知原因")
 
-        # 构建死亡位置信息（如果服务器类型支持位置信息）
-        death_location = ""
-        if ("block_x" in server_class.player and 
-            "block_y" in server_class.player and 
-            "block_z" in server_class.player):
-            death_location = (f"位置：x:{player_data.get('block_x')},"
-                            f"y:{player_data.get('block_y')},"
-                            f"z:{player_data.get('block_z')}")
+        # 构造死亡消息
+        message = f"{self.qq_message_prefix} ☠️ {death_message}"
 
-        death_message = f"{self.qq_message_prefix} 玩家 {player_name} 死亡了，原因：{death_reason}"
-        if death_location:
-            death_message += f"，{death_location}"
+        # 发送到绑定的QQ群
+        if bound_groups:
+            await send_to_groups_callback(bound_groups, message)
+            logger.info(f"玩家 {player_name} 死亡消息已发送到QQ群")
 
-        await send_to_groups_callback(bound_groups, death_message)
-        return True 
+        return True
