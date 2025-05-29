@@ -142,9 +142,6 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
 
             # 获取关联的群聊列表
             bound_groups = self.binding_manager.get_bound_groups(server_name)
-            if not bound_groups:
-                logger.warning(f"服务器 {server_name} 没有关联的群聊，消息将不会被转发")
-                # 即使没有绑定群聊，仍然可以路由到其他适配器
                 
             # 处理玩家聊天消息
             if event_name == server_class.chat:

@@ -278,19 +278,99 @@ class BroadcastManager:
             lines.append(line)
         return "\n".join(lines)
     
-    async def send_rich_broadcast(self, adapter, components: List[Dict[str, Any]]) -> bool:
-        """发送支持富文本格式的广播消息"""
-        if not adapter.connected:
-            await adapter.websocket_manager.start()
-            logger.error("无法发送广播：WebSocket未连接，正在尝试重连")
+    async def send_rich_broadcast(self, adapters: List[Any], components: List[Dict[str, Any]]) -> bool:
+        """发送支持富文本格式的广播消息到所有服务器"""
+        if not adapters:
+            logger.error("无法发送广播：没有可用的适配器")
             return False
 
-        try:
-            # 每个组件单独发送一条消息
-            return await self._send_separately(adapter, components)
+        success_count = 0
+        total_adapters = len(adapters)
+        
+        # 遍历所有适配器发送广播
+        for i, adapter in enumerate(adapters):
+            if not adapter.connected:
+                try:
+                    await adapter.websocket_manager.start()
+                except Exception as e:
+                    logger.error(f"适配器 {adapter.adapter_id} 重连失败: {str(e)}")
+                    continue
+                logger.warning(f"适配器 {adapter.adapter_id} WebSocket未连接，正在尝试重连")
 
-        except Exception as e:
-            logger.error(f"发送富文本广播消息时出错: {str(e)}")
+            try:
+                # 每个组件单独发送一条消息
+                adapter_success = await self._send_separately(adapter, components)
+                if adapter_success:
+                    success_count += 1
+                
+                # 如果不是最后一个适配器，添加延迟避免发送过快
+                if i < total_adapters - 1:
+                    await asyncio.sleep(self.send_interval)
+                    
+            except Exception as send_error:
+                logger.error(f"向适配器 {adapter.adapter_id} 发送广播失败: {send_error}")
+                continue
+
+        # 判断是否全部发送成功
+        if success_count == total_adapters:
+            logger.info(f"富文本广播发送成功：共发送到 {success_count} 个服务器")
+            return True
+        elif success_count > 0:
+            logger.warning(f"富文本广播部分成功：{success_count}/{total_adapters} 个服务器发送成功")
+            return True
+        else:
+            logger.error("富文本广播发送失败：所有服务器都发送失败")
+            return False
+    
+    async def send_custom_rich_broadcast(self, adapters: List[Any], text_content: str, click_value: str, hover_text: str, click_action: str = "SUGGEST_COMMAND") -> bool:
+        """发送自定义富文本广播消息到所有服务器"""
+        if not adapters:
+            logger.error("无法发送自定义广播：没有可用的适配器")
+            return False
+
+        success_count = 0
+        total_adapters = len(adapters)
+        
+        # 遍历所有适配器发送广播
+        for i, adapter in enumerate(adapters):
+            if not adapter.connected:
+                logger.error(f"无法向适配器 {adapter.adapter_id} 发送自定义广播：WebSocket未连接")
+                continue
+
+            try:
+                # 使用MessageBuilder创建管理员公告消息
+                broadcast_msg = MessageBuilder.create_admin_announcement(
+                    text=text_content,
+                    click_value=click_value,
+                    hover_text=hover_text,
+                    click_action=click_action
+                )
+
+                # 记录日志
+                MessageBuilder.log_message(broadcast_msg, f"向适配器 {adapter.adapter_id} 发送自定义富文本广播消息")
+
+                # 发送消息
+                success = await adapter.websocket_manager.send_message(broadcast_msg)
+                if success:
+                    success_count += 1
+                
+                # 如果不是最后一个适配器，添加延迟避免发送过快
+                if i < total_adapters - 1:
+                    await asyncio.sleep(self.send_interval)
+                    
+            except Exception as e:
+                logger.error(f"向适配器 {adapter.adapter_id} 发送自定义富文本广播消息时出错: {str(e)}")
+                continue
+
+        # 判断是否全部发送成功
+        if success_count == total_adapters:
+            logger.info(f"自定义富文本广播发送成功：共发送到 {success_count} 个服务器")
+            return True
+        elif success_count > 0:
+            logger.warning(f"自定义富文本广播部分成功：{success_count}/{total_adapters} 个服务器发送成功")
+            return True
+        else:
+            logger.error("自定义富文本广播发送失败：所有服务器都发送失败")
             return False
     
     async def _send_separately(self, adapter, components: List[Dict[str, Any]]) -> bool:
@@ -345,31 +425,6 @@ class BroadcastManager:
             return True
         else:
             logger.error("富文本广播发送失败：所有消息都发送失败")
-            return False
-    
-    async def send_custom_rich_broadcast(self, adapter, text_content: str, click_value: str, hover_text: str, click_action: str = "SUGGEST_COMMAND") -> bool:
-        """发送自定义富文本广播消息"""
-        if not adapter.connected:
-            logger.error("无法发送自定义广播：WebSocket未连接")
-            return False
-
-        try:
-            # 使用MessageBuilder创建管理员公告消息
-            broadcast_msg = MessageBuilder.create_admin_announcement(
-                text=text_content,
-                click_value=click_value,
-                hover_text=hover_text,
-                click_action=click_action
-            )
-
-            # 记录日志
-            MessageBuilder.log_message(broadcast_msg, "自定义富文本广播消息")
-
-            # 发送消息
-            return await adapter.websocket_manager.send_message(broadcast_msg)
-
-        except Exception as e:
-            logger.error(f"发送自定义富文本广播消息时出错: {str(e)}")
             return False
     
     def is_enabled(self) -> bool:

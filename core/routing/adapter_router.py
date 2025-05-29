@@ -105,7 +105,6 @@ class AdapterRouter:
         logger.debug(f"开始广播到其他适配器，排除源: {source_adapter_id}")
         
         tasks = []
-        target_count = 0
         for adapter_id, adapter in self.adapters.items():
             if adapter_id == source_adapter_id:
                 logger.debug(f"跳过源适配器: {adapter_id}")
@@ -115,11 +114,6 @@ class AdapterRouter:
                 logger.debug(f"向适配器 {adapter_id} ({adapter.server_name}) 发送消息")
                 task = adapter.send_minecraft_message(message, sender)
                 tasks.append(task)
-                target_count += 1
-            else:
-                logger.warning(f"适配器 {adapter_id} ({adapter.server_name}) 未连接，跳过消息转发")
-                
-        logger.info(f"准备向 {target_count} 个目标适配器转发消息")
         
         # 并发发送消息
         if tasks:
@@ -130,9 +124,6 @@ class AdapterRouter:
                     logger.error(f"转发消息到适配器时出错: {result}")
                 else:
                     success_count += 1
-            logger.info(f"成功转发到 {success_count}/{len(tasks)} 个适配器")
-        else:
-            logger.warning("没有可用的目标适配器进行消息转发")
         
     async def broadcast_message(self, message: str, sender: str = None, exclude_adapter_id: str = None):
         """向所有适配器广播消息（通常用于管理员命令）"""

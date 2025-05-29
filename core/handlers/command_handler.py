@@ -12,7 +12,7 @@ class CommandHandler:
         self.plugin = plugin_instance
     
     async def handle_bind_command(self, event: AstrMessageEvent):
-        """处理mcbind命令"""
+        """处理mcbind命令，支持多服务器参数"""
         # 仅管理员可以使用此命令
         if not event.is_admin():
             return "⛔ 只有管理员才能使用此命令"
@@ -21,21 +21,37 @@ class CommandHandler:
         if not group_id:
             return "❌ 此命令只能在群聊中使用"
 
-        # 获取Minecraft适配器
-        adapter = await self.plugin.get_minecraft_adapter()
-        if not adapter:
-            return "❌ 未找到Minecraft平台适配器，请确保适配器已正确注册并启用"
+        # 解析参数，允许 /mcbind <服务器名>
+        tokens = event.message_str.strip().split()
+        if len(tokens) > 1:
+            server_name = tokens[1]
+        else:
+            server_name = None
+
+        # 获取目标适配器
+        adapter = None
+        if server_name:
+            for a in self.plugin.adapter_router.get_all_adapters():
+                if a.server_name == server_name or a.adapter_id == server_name:
+                    adapter = a
+                    break
+            if not adapter:
+                return f"❌ 未找到名为 {server_name} 的Minecraft适配器"
+        else:
+            adapter = await self.plugin.get_minecraft_adapter()
+            if not adapter:
+                return "❌ 未找到Minecraft平台适配器，请确保适配器已正确注册并启用"
 
         # 绑定群聊
         success = await adapter.bind_group(group_id)
         if success:
-            logger.info(f"群聊 {group_id} 与服务器 {adapter.server_name} 绑定")
-            return "✅ 成功将本群与Minecraft服务器绑定"
+            logger.info(f"群聊 {group_id} 与服务器 {adapter.adapter_id} 绑定")
+            return f"✅ 成功将本群与Minecraft服务器 {adapter.adapter_id} 绑定"
         else:
-            return "ℹ️ 此群已经与Minecraft服务器绑定"
+            return f"ℹ️ 此群已经与Minecraft服务器 {adapter.adapter_id} 绑定"
     
     async def handle_unbind_command(self, event: AstrMessageEvent):
-        """处理mcunbind命令"""
+        """处理mcunbind命令，支持多服务器参数"""
         # 仅管理员可以使用此命令
         if not event.is_admin():
             return "⛔ 只有管理员才能使用此命令"
@@ -44,18 +60,34 @@ class CommandHandler:
         if not group_id:
             return "❌ 此命令只能在群聊中使用"
 
-        # 获取Minecraft适配器
-        adapter = await self.plugin.get_minecraft_adapter()
-        if not adapter:
-            return "❌ 未找到Minecraft平台适配器，请确保适配器已正确注册并启用"
+        # 解析参数，允许 /mcunbind <服务器名>
+        tokens = event.message_str.strip().split()
+        if len(tokens) > 1:
+            server_name = tokens[1]
+        else:
+            server_name = None
+
+        # 获取目标适配器
+        adapter = None
+        if server_name:
+            for a in self.plugin.adapter_router.get_all_adapters():
+                if a.server_name == server_name or a.adapter_id == server_name:
+                    adapter = a
+                    break
+            if not adapter:
+                return f"❌ 未找到名为 {server_name} 的Minecraft适配器"
+        else:
+            adapter = await self.plugin.get_minecraft_adapter()
+            if not adapter:
+                return "❌ 未找到Minecraft平台适配器，请确保适配器已正确注册并启用"
 
         # 解除绑定
         success = await adapter.unbind_group(group_id)
         if success:
             logger.info(f"解除群聊 {group_id} 与服务器 {adapter.server_name} 的绑定")
-            return "✅ 成功解除本群与Minecraft服务器的绑定"
+            return f"✅ 成功解除本群与Minecraft服务器 {adapter.server_name} 的绑定"
         else:
-            return "ℹ️ 此群未与Minecraft服务器绑定"
+            return f"ℹ️ 此群未与Minecraft服务器 {adapter.server_name} 绑定"
     
     async def handle_status_command(self, event: AstrMessageEvent):
         """处理mcstatus命令"""
@@ -104,14 +136,6 @@ class CommandHandler:
                 except Exception as e:
                     status_msg += f"   状态: ❌ 重连失败: {str(e)}\n"
             
-            status_msg += "\n"
-        
-        # 添加总结信息
-        status_msg += f"📊 总结: {connected_count}/{len(adapters)} 个适配器已连接"
-        
-        if group_id:
-            status_msg += f", {bound_count}/{len(adapters)} 个适配器与本群绑定"
-            
         return status_msg
     
     async def handle_say_command(self, event: AstrMessageEvent):
@@ -148,13 +172,13 @@ class CommandHandler:
             return f"❌ 发送消息失败: {str(e)}"
     
     def handle_help_command(self, event: AstrMessageEvent):
-        """处理mc帮助命令"""
+        """处理mc帮助命令，更新多服务器说明"""
         help_msg = """
 Minecraft相关指令菜单:
 qq群:
     '/'或@机器人可发起ai对话
-    /mcbind - 绑定当前群聊与Minecraft服务器
-    /mcunbind - 解除当前群聊与Minecraft服务器的绑定
+    /mcbind [服务器名] - 绑定当前群聊与指定Minecraft服务器（不填为主服务器）
+    /mcunbind [服务器名] - 解除当前群聊与指定Minecraft服务器的绑定（不填为主服务器）
     /mcstatus - 显示所有Minecraft适配器的连接状态和绑定信息
     /mcsay - 向所有已连接的Minecraft服务器发送消息
     /rcon <指令> - 通过RCON执行Minecraft服务器指令 (仅管理员)
@@ -242,9 +266,30 @@ mc:
         if not event.is_admin():
             return "⛔ 只有管理员才能使用此命令"
 
-        # 调用整点广播执行方法
-        await self.plugin.broadcast_manager.execute_hourly_broadcast(self.plugin._broadcast_callback)
-        return "✅ 测试广播已执行完成"
+        # 获取所有适配器
+        adapters = self.plugin.adapter_router.get_all_adapters()
+        if not adapters:
+            return "❌ 未找到任何Minecraft平台适配器，请确保适配器已正确注册并启用"
+
+        # 检查连接状态
+        connected_adapters = []
+        for adapter in adapters:
+            if await adapter.is_connected():
+                connected_adapters.append(adapter)
+
+        if not connected_adapters:
+            return "❌ 所有Minecraft适配器都未连接，请检查连接状态"
+
+        # 获取广播内容
+        content = self.plugin.broadcast_manager.hourly_broadcast_content
+        
+        # 发送广播
+        success = await self.plugin.broadcast_manager.send_rich_broadcast(connected_adapters, content)
+        
+        if success:
+            return f"✅ 测试广播已发送到 {len(connected_adapters)} 个服务器"
+        else:
+            return "❌ 发送测试广播失败，请检查连接状态"
     
     async def handle_custom_broadcast_command(self, event: AstrMessageEvent):
         """处理mc自定义广播命令"""
@@ -271,20 +316,26 @@ mc:
         if not text_content:
             return "❌ 文本内容不能为空！"
 
-        # 获取Minecraft适配器
-        adapter = await self.plugin.get_minecraft_adapter()
-        if not adapter:
-            return "❌ 未找到Minecraft平台适配器，请确保适配器已正确注册并启用"
+        # 获取所有适配器
+        adapters = self.plugin.adapter_router.get_all_adapters()
+        if not adapters:
+            return "❌ 未找到任何Minecraft平台适配器，请确保适配器已正确注册并启用"
 
-        if not adapter.connected:
-            return "❌ 未连接到Minecraft服务器，请检查连接"
+        # 检查连接状态
+        connected_adapters = []
+        for adapter in adapters:
+            if await adapter.is_connected():
+                connected_adapters.append(adapter)
+
+        if not connected_adapters:
+            return "❌ 所有Minecraft适配器都未连接，请检查连接状态"
 
         # 发送自定义广播
         success = await self.plugin.broadcast_manager.send_custom_rich_broadcast(
-            adapter, text_content, click_value, hover_text
+            connected_adapters, text_content, click_value, hover_text
         )
         
         if success:
-            return f"✅ 自定义广播已发送\n📝 文本: {text_content}\n🖱️ 点击: {click_value}\n💬 悬浮: {hover_text}"
+            return f"✅ 自定义广播已发送到 {len(connected_adapters)} 个服务器\n📝 文本: {text_content}\n🖱️ 点击: {click_value}\n💬 悬浮: {hover_text}"
         else:
             return "❌ 发送自定义广播失败，请检查连接状态" 
