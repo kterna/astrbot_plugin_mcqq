@@ -10,6 +10,7 @@ astrbot_plugin_mcqq/
 │   ├── __init__.py                  # 核心模块初始化
 │   ├── adapters/                    # 平台适配器
 │   │   ├── __init__.py
+│   │   ├── base_adapter.py          # 适配器基类
 │   │   └── minecraft_adapter.py     # Minecraft平台适配器
 │   ├── managers/                    # 管理器模块
 │   │   ├── __init__.py
@@ -18,7 +19,8 @@ astrbot_plugin_mcqq/
 │   │   ├── group_binding_manager.py # 群组绑定管理器
 │   │   ├── process_manager.py       # 进程管理器
 │   │   ├── websocket_manager.py     # WebSocket连接管理器
-│   │   └── message_sender.py        # 消息发送管理器
+│   │   ├── message_sender.py        # 消息发送管理器
+│   │   └── adapter_router.py        # 适配器路由管理器
 │   ├── handlers/                    # 处理器模块
 │   │   ├── __init__.py
 │   │   ├── command_handler.py       # 命令处理器
@@ -43,9 +45,12 @@ astrbot_plugin_mcqq/
 │   ├── events/                      # 事件模块
 │   │   ├── __init__.py
 │   │   └── minecraft_event.py      # Minecraft事件定义
-│   └── config/                      # 配置模块
+│   ├── config/                      # 配置模块
+│   │   ├── __init__.py
+│   │   └── server_types.py         # 服务器类型定义
+│   └── routing/                     # 路由模块
 │       ├── __init__.py
-│       └── server_types.py         # 服务器类型定义
+│       └── message_router.py       # 消息路由
 ├── README.md                        # 项目说明文档
 ├── metadata.yaml                    # 插件元数据
 ├── requirements.txt                 # 依赖包列表
@@ -63,6 +68,7 @@ astrbot_plugin_mcqq/
 - 各模块的协调和管理
 
 ### 2. 适配器模块 (`core/adapters/`)
+- **base_adapter.py**: 适配器基类，定义通用接口和功能
 - **minecraft_adapter.py**: Minecraft平台适配器，负责协调各个管理器和处理器
 
 ### 3. 管理器模块 (`core/managers/`)
@@ -72,6 +78,7 @@ astrbot_plugin_mcqq/
 - **process_manager.py**: 外部进程管理
 - **websocket_manager.py**: WebSocket连接管理，负责与鹊桥模组的连接维护
 - **message_sender.py**: 消息发送管理，负责向Minecraft服务器发送各种类型的消息
+- **adapter_router.py**: 适配器路由管理，负责多适配器之间的消息转发和状态管理
 
 ### 4. 处理器模块 (`core/handlers/`)
 - **command_handler.py**: 集中处理所有QQ命令逻辑，使用命令系统进行解耦
@@ -101,6 +108,12 @@ astrbot_plugin_mcqq/
 
 ## 架构设计说明
 
+### 多适配器支持
+- **BaseAdapter**: 提供适配器基类，定义通用接口和功能
+- **AdapterRouter**: 管理多个适配器实例，处理消息转发和状态管理
+- **消息路由**: 支持在多个Minecraft服务器之间自动转发消息
+- **状态管理**: 统一管理所有适配器的连接状态和群组绑定
+
 ### 职责分离
 - **MinecraftPlatformAdapter**: 作为主要的协调器，负责初始化各个管理器并协调它们之间的工作
 - **WebSocketManager**: 专门负责WebSocket连接的建立、维护、重连逻辑和消息接收
@@ -124,12 +137,14 @@ astrbot_plugin_mcqq/
 - CommandHandler通过CommandRegistry动态查找和执行命令
 - MessageBuilder为各个管理器提供统一的消息格式构建服务
 - WikiUtils为BroadcastManager和WikiCommand提供Wiki功能支持
+- AdapterRouter协调多个适配器之间的消息转发
 - 各个管理器保持相对独立，便于测试和维护
 
 ### 代码复用和维护性
 - **命令系统**实现了命令逻辑的完全解耦，新增命令只需继承BaseCommand
 - **MessageBuilder**工具类统一了所有JSON消息的构建逻辑，消除了重复代码
 - **WikiUtils**集中了所有Wiki相关功能，支持多种使用场景
+- **BaseAdapter**提供了适配器的通用功能，简化了新适配器的开发
 - 提供了验证、清理和日志记录等通用功能
 - 支持多种消息类型：简单广播、富文本广播、私聊消息、管理员公告等
 - 便于扩展新的消息类型、命令和功能
@@ -138,4 +153,5 @@ astrbot_plugin_mcqq/
 - 命令系统支持动态注册，可以轻松添加新的命令
 - Wiki系统支持多种输出格式，易于适配不同的使用场景
 - 消息构建系统支持新的消息类型扩展
+- 适配器系统支持添加新的平台适配器
 - 管理器模块化设计，便于功能的独立开发和测试

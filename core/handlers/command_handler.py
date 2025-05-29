@@ -61,33 +61,57 @@ class CommandHandler:
         """处理mcstatus命令"""
         group_id = event.get_group_id()
         
-        # 获取Minecraft适配器
-        adapter = await self.plugin.get_minecraft_adapter()
-        if not adapter:
-            return "❌ 未找到Minecraft平台适配器，请确保适配器已正确注册并启用"
+        # 获取所有适配器
+        adapters = self.plugin.adapter_router.get_all_adapters()
+        if not adapters:
+            return "❌ 未找到任何Minecraft平台适配器，请确保适配器已正确注册并启用"
 
-        # 如果未连接，尝试手动启动连接
-        if not adapter.connected:
-            # 通过websocket_manager正确重置连接状态
-            adapter.websocket_manager.connected = False
-            adapter.websocket_manager.websocket = None
-            adapter.websocket_manager.should_reconnect = True
-            adapter.websocket_manager.total_retries = 0
+        # 构建状态消息
+        status_msg = "🔌 Minecraft适配器状态:\n"
+        
+        connected_count = 0
+        bound_count = 0
+        
+        for i, adapter in enumerate(adapters, 1):
+            # 检查连接状态
+            is_connected = await adapter.is_connected()
+            if is_connected:
+                connected_count += 1
+                
+            # 检查绑定状态（仅在群聊中检查）
+            is_bound = False
+            if group_id:
+                is_bound = adapter.is_group_bound(group_id)
+                if is_bound:
+                    bound_count += 1
             
-            # 启动新的重连任务
-            asyncio.create_task(adapter.websocket_manager.start())
-            return "⏳ Minecraft服务器未连接，正在尝试连接..."
+            # 添加适配器状态信息
+            status_msg += f"{i}. {adapter.server_name} ({adapter.adapter_id})\n"
+            status_msg += f"   连接: {'✅ 已连接' if is_connected else '❌ 未连接'}\n"
+            
+            if group_id:
+                status_msg += f"   绑定: {'✅ 已绑定' if is_bound else '❌ 未绑定'}\n"
+            
+            # 如果未连接，尝试手动启动连接
+            if not is_connected:
+                try:
+                    adapter.websocket_manager.connected = False
+                    adapter.websocket_manager.websocket = None
+                    adapter.websocket_manager.should_reconnect = True
+                    adapter.websocket_manager.total_retries = 0
+                    asyncio.create_task(adapter.websocket_manager.start())
+                    status_msg += f"   状态: ⏳ 正在尝试重连...\n"
+                except Exception as e:
+                    status_msg += f"   状态: ❌ 重连失败: {str(e)}\n"
+            
+            status_msg += "\n"
         
-        # 生成状态消息
-        status_msg = f"🔌 Minecraft服务器连接状态: {'已连接' if adapter.connected else '未连接'}\n"
+        # 添加总结信息
+        status_msg += f"📊 总结: {connected_count}/{len(adapters)} 个适配器已连接"
         
-        # 添加绑定信息
-        is_bound = adapter.is_group_bound(group_id)
-        if is_bound:
-            status_msg += "🔗 本群已绑定Minecraft服务器"
-        else:
-            status_msg += "🔗 本群未绑定Minecraft服务器"
-        
+        if group_id:
+            status_msg += f", {bound_count}/{len(adapters)} 个适配器与本群绑定"
+            
         return status_msg
     
     async def handle_say_command(self, event: AstrMessageEvent):
@@ -97,20 +121,31 @@ class CommandHandler:
         if not message:
             return "❓ 请提供要发送的消息内容，例如：/mcsay 大家好"
 
-        # 获取Minecraft适配器
-        adapter = await self.plugin.get_minecraft_adapter()
-        if not adapter:
-            return "❌ 未找到Minecraft平台适配器，请确保适配器已正确注册并启用"
-
-        if not adapter.connected:
-            return "❌ 未连接到Minecraft服务器，请检查连接"
-
         # 获取发送者信息
         sender_name = event.get_sender_name()
 
-        # 发送消息到Minecraft
-        await adapter.send_mc_message(message, sender_name)
-        return f"✅ 消息已发送到Minecraft服务器"
+        # 检查是否有可用的适配器
+        adapters = self.plugin.adapter_router.get_all_adapters()
+        if not adapters:
+            return "❌ 未找到任何Minecraft平台适配器，请确保适配器已正确注册并启用"
+
+        # 检查连接状态
+        connected_adapters = []
+        for adapter in adapters:
+            if await adapter.is_connected():
+                connected_adapters.append(adapter)
+
+        if not connected_adapters:
+            return "❌ 所有Minecraft适配器都未连接，请检查连接状态"
+
+        # 向所有已连接的适配器广播消息
+        try:
+            await self.plugin.adapter_router.broadcast_message(message, sender_name)
+            return ""
+                
+        except Exception as e:
+            logger.error(f"发送消息到Minecraft服务器时出错: {str(e)}")
+            return f"❌ 发送消息失败: {str(e)}"
     
     def handle_help_command(self, event: AstrMessageEvent):
         """处理mc帮助命令"""
@@ -120,8 +155,8 @@ qq群:
     '/'或@机器人可发起ai对话
     /mcbind - 绑定当前群聊与Minecraft服务器
     /mcunbind - 解除当前群聊与Minecraft服务器的绑定
-    /mcstatus - 显示当前Minecraft服务器连接状态和绑定信息
-    /mcsay - 向Minecraft服务器发送消息
+    /mcstatus - 显示所有Minecraft适配器的连接状态和绑定信息
+    /mcsay - 向所有已连接的Minecraft服务器发送消息
     /rcon <指令> - 通过RCON执行Minecraft服务器指令 (仅管理员)
     /rcon 重启 - 尝试重新连接RCON服务器
     /mc广播设置 [富文本配置] - 设置整点广播富文本内容 (仅管理员)

@@ -30,6 +30,10 @@ class BotFilter:
         if not self.filter_enabled:
             return False
             
+        # 确保player_name是字符串
+        if not isinstance(player_name, str):
+            return False
+            
         # 检查前缀
         for prefix in self.bot_prefix:
             if player_name.startswith(prefix):
