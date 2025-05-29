@@ -167,7 +167,7 @@ class MessageHandler:
         player_name = player_data.get("nickname", player_data.get("display_name", "未知玩家"))
 
         # 过滤假人
-        if self.bot_filter.is_bot(player_name):
+        if self.bot_filter.is_bot_player(player_name):
             logger.debug(f"过滤假人 {player_name} 的进入/退出消息")
             return False
 
@@ -213,7 +213,7 @@ class MessageHandler:
         death_message = data.get("death_message", f"{player_name} 死了")
 
         # 过滤假人
-        if self.bot_filter.is_bot(player_name):
+        if self.bot_filter.is_bot_player(player_name):
             logger.debug(f"过滤假人 {player_name} 的死亡消息")
             return False
 

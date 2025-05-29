@@ -33,7 +33,7 @@ class QQCommand(BaseCommand):
             return True
         
         # 过滤假人
-        if self.message_handler.bot_filter.is_bot(player_name):
+        if self.message_handler.bot_filter.is_bot_player(player_name):
             logger.debug(f"过滤假人 {player_name} 的QQ转发消息")
             return True
         
