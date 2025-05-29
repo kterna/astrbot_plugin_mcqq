@@ -80,7 +80,7 @@ class MessageHandler:
         player_name = player_data.get("nickname", player_data.get("display_name", "未知玩家"))
         message_text = data.get("message", "")
 
-        logger.debug(f"收到玩家消息 - {player_name}: {message_text}")
+        logger.info(f"{player_name}: {message_text}")
 
         # 如果不是以#开头的消息，直接返回False
         if not message_text.startswith("#"):
