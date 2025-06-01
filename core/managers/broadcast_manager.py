@@ -95,7 +95,11 @@ class BroadcastManager:
             # 等待到整点
             now = datetime.datetime.now()
             next_hour = now.replace(minute=0, second=0, microsecond=0) + datetime.timedelta(hours=1)
-            await asyncio.sleep((next_hour - now).total_seconds())
+
+            # 计算需要等待的秒数:
+            sleep_time=(next_hour - now).total_seconds()
+
+            await asyncio.sleep(sleep_time)
 
             # 执行整点广播
             await self.execute_hourly_broadcast(broadcast_callback)
@@ -104,7 +108,7 @@ class BroadcastManager:
         """执行整点广播"""
         # 检查广播是否开启
         if not self.hourly_broadcast_enabled:
-            logger.debug("整点广播已关闭，跳过广播")
+            logger.info("整点广播已关闭，跳过广播")
             return
 
         # 整点广播始终使用默认内容
@@ -116,7 +120,6 @@ class BroadcastManager:
             logger.info("整点广播已成功执行")
         else:
             logger.warning("整点广播执行失败")
-        
         # 获取并发送随机Wiki内容
         try:
             wiki_broadcast_content = await WikiUtils.get_wiki_broadcast_content()
@@ -125,11 +128,7 @@ class BroadcastManager:
                 await asyncio.sleep(0.1)
                 
                 # 发送Wiki广播
-                wiki_success = await broadcast_callback(wiki_broadcast_content)
-                if wiki_success:
-                    logger.info("Wiki随机内容广播已成功执行")
-                else:
-                    logger.warning("Wiki随机内容广播执行失败")
+                await broadcast_callback(wiki_broadcast_content)
             else:
                 logger.warning("获取Wiki随机内容失败，跳过Wiki广播")
         except Exception as e:

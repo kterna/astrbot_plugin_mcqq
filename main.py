@@ -6,7 +6,7 @@ from astrbot.core.platform.manager import PlatformManager
 from astrbot.core.star.star_tools import StarTools
 
 import asyncio
-from typing import Optional
+from typing import Optional, List
 
 # 导入平台适配器
 from .core.adapters.minecraft_adapter import MinecraftPlatformAdapter
@@ -97,37 +97,35 @@ class MCQQPlugin(Star):
         # 等待适配器初始化完成
         await asyncio.sleep(2)
 
-        adapter = await self.get_minecraft_adapter()
-        if adapter:
-            await self.rcon_manager.initialize(adapter)
+        await self.rcon_manager.initialize(self.minecraft_adapter)
 
     async def start_hourly_broadcast(self):
         """启动整点广播任务"""
         await asyncio.sleep(3)  # 等待适配器初始化
+        logger.info("启动整点广播任务")
         await self.broadcast_manager.start_hourly_broadcast(self._broadcast_callback)
 
     async def _broadcast_callback(self, components):
         """广播回调函数"""
-        adapter = await self.get_minecraft_adapter()
+        adapter = await self.get_all_minecraft_adapter()
         if adapter:
             return await self.broadcast_manager.send_rich_broadcast(adapter, components)
         return False
 
-    async def get_minecraft_adapter(self) -> Optional[MinecraftPlatformAdapter]:
-        """获取Minecraft平台适配器"""
-        if self.minecraft_adapter:
-            return self.minecraft_adapter
+    async def get_all_minecraft_adapter(self) -> List[MinecraftPlatformAdapter]:
+        """获取所有Minecraft平台适配器"""
+        minecraft_adapters = []
 
-        # 如果还没有找到适配器，再次尝试查找
         if self.platform_manager:
             for platform in self.platform_manager.platform_insts:
                 if isinstance(platform, MinecraftPlatformAdapter):
-                    self.minecraft_adapter = platform
-                    logger.info("已找到Minecraft平台适配器")
-                    return self.minecraft_adapter
+                    minecraft_adapters.append(platform)
+                    logger.debug(f"找到Minecraft平台适配器: {platform.adapter_id}")
 
-        logger.warning("未找到Minecraft平台适配器，请确保适配器已正确注册并启用")
-        return None
+        if not minecraft_adapters:
+            logger.warning("未找到任何Minecraft平台适配器，请确保适配器已正确注册并启用")
+
+        return minecraft_adapters
 
     @filter.command("mcbind")
     async def mc_bind_command(self, event: AstrMessageEvent):
