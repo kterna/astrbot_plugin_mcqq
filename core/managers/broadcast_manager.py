@@ -290,7 +290,7 @@ class BroadcastManager:
         for i, adapter in enumerate(adapters):
             if not adapter.connected:
                 try:
-                    await adapter.websocket_manager.start()
+                    asyncio.create_task(adapter.websocket_manager.start())
                 except Exception as e:
                     logger.error(f"适配器 {adapter.adapter_id} 重连失败: {str(e)}")
                     continue
