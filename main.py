@@ -205,19 +205,42 @@ class MCQQPlugin(Star):
         yield event.plain_result(result)
 
     async def terminate(self):
-        """插件终止时调用"""
+        """插件终止时的清理工作"""
         logger.info("插件终止")
+        
         # 保存路由器配置
         await self.adapter_router.save_config()
+        
         # 关闭所有适配器
         await self.adapter_router.close_all_adapters()
+        
         # 保存广播配置
         self.broadcast_manager.save_config()
+        
         # 关闭RCON连接
         await self.rcon_manager.close()
+        
         # 取消整点广播任务
         if self.broadcast_manager.hourly_broadcast_task is not None:
             task = self.broadcast_manager.hourly_broadcast_task
             if not task.done():
                 task.cancel()
                 logger.info("已取消整点广播任务")
+        
+        # 清理平台适配器注册信息
+        try:
+            from astrbot.core.platform.register import platform_cls_map, platform_registry
+            logger.debug(f"清理前 platform_cls_map: {list(platform_cls_map.keys())}")
+            logger.debug(f"清理前 platform_registry: {[p.name for p in platform_registry]}")
+            
+            if "minecraft" in platform_cls_map:
+                del platform_cls_map["minecraft"]
+            for i, platform_metadata in enumerate(platform_registry):
+                if platform_metadata.name == "minecraft":
+                    del platform_registry[i]
+                    break
+                    
+            logger.debug(f"清理后 platform_cls_map: {list(platform_cls_map.keys())}")
+            logger.debug(f"清理后 platform_registry: {[p.name for p in platform_registry]}")
+        except Exception as e:
+            logger.error(f"清理 Minecraft 平台适配器注册信息失败: {str(e)}")
