@@ -36,15 +36,26 @@ class BroadcastManager:
                 "text": "🐷猪花广播为您服务！🕐现在是{time}。[查看命令指南]",
                 "color": "aqua", 
                 "bold": False,
-                "click_command": "#命令指南",
-                "hover_text": "🤖 点击查看服务器命令指南",
+                "click_event":{
+                    "action":"SUGGEST_COMMAND",
+                    "value":"#命令指南"
+                },
+                "hover_event": {
+                    "action":"SHOW_TEXT",
+                    "contents":[
+                        {
+                            "text":"🤖 点击查看服务器命令指南"
+                        }
+                    ]
+                },
                 "click_action": "SUGGEST_COMMAND"
             }
         ]
         self.hourly_broadcast_task: Optional[asyncio.Task] = None
         
         # 用户自定义的广播内容（用于覆盖默认内容）
-        self.custom_broadcast_content: Optional[List[Dict[str, Any]]] = None
+        # 现在支持多适配器，key为adapter_id，value为内容list
+        self.custom_broadcast_content: Optional[dict] = None
         
         # 加载保存的配置
         self.load_config()
@@ -55,21 +66,10 @@ class BroadcastManager:
             if self.config_file.exists():
                 with open(self.config_file, 'r', encoding='utf-8') as f:
                     config = json.load(f)
-                
-                # 加载广播开关状态
                 self.hourly_broadcast_enabled = config.get("hourly_broadcast_enabled", True)
-                
-                # 加载自定义广播内容
                 custom_content = config.get("custom_broadcast_content")
-                if custom_content:
-                    # 为旧配置添加click_action字段
-                    for component in custom_content:
-                        if "click_action" not in component:
-                            component["click_action"] = "SUGGEST_COMMAND"
-                    
-                    self.custom_broadcast_content = custom_content
-                    logger.info("已加载保存的广播配置")
-                
+                self.custom_broadcast_content = custom_content
+                logger.info("已加载保存的广播配置")
         except Exception as e:
             logger.error(f"加载广播配置失败: {e}")
     
@@ -80,12 +80,9 @@ class BroadcastManager:
                 "hourly_broadcast_enabled": self.hourly_broadcast_enabled,
                 "custom_broadcast_content": self.custom_broadcast_content
             }
-            
             with open(self.config_file, 'w', encoding='utf-8') as f:
                 json.dump(config, f, ensure_ascii=False, indent=2)
-            
             logger.debug("广播配置已保存")
-            
         except Exception as e:
             logger.error(f"保存广播配置失败: {e}")
     
@@ -134,32 +131,20 @@ class BroadcastManager:
         except Exception as e:
             logger.error(f"Wiki广播执行时出错: {str(e)}")
     
-    def set_broadcast_content(self, config_string: str) -> tuple[bool, str]:
+    def set_broadcast_content(self, adapter_id: str, config_string: str) -> tuple[bool, str]:
         """
-        解析并设置广播内容
-        
-        Args:
-            config_string: 配置字符串
-            
-        Returns:
-            tuple[bool, str]: (成功标志, 结果消息)
+        解析并设置指定适配器的广播内容
         """
         try:
             new_content = self._parse_broadcast_config(config_string)
-            self.custom_broadcast_content = new_content
-            
-            # 保存配置到文件
+            if self.custom_broadcast_content is None:
+                self.custom_broadcast_content = {}
+            self.custom_broadcast_content[adapter_id] = new_content
             self.save_config()
-            
-            # 显示设置结果
-            config_display = self._format_broadcast_config_display()
-            return True, f"✅ 整点广播内容已更新并保存:\n{config_display}"
-            
+            config_display = self._format_broadcast_config_display(adapter_id)
+            return True, f"✅ 适配器 {adapter_id} 的整点广播内容已更新并保存:\n{config_display}"
         except Exception as e:
-            return False, f"❌ 解析广播配置时出错: {str(e)}\n\n💡 格式说明:\n" \
-                         f"🎨 富文本: [文本,颜色,粗体(true/false),点击命令,悬浮文本]|[下一个组件]\n" \
-                         f"📝 简单: 直接输入文本内容\n" \
-                         f"📋 示例: 🕐,gold,true,,|报时：{{time}},aqua,false,/time,点击查询"
+            return False, f"❌ 解析广播配置时出错: {str(e)}\n\n💡 格式说明:\n🎨 富文本: [文本,颜色,粗体(true/false),点击命令,悬浮文本]|[下一个组件]\n📝 简单: 直接输入文本内容\n📋 示例: 🕐,gold,true,,|报时：{{time}},aqua,false,/time,点击查询"
     
     def toggle_broadcast(self) -> tuple[bool, str]:
         """
@@ -176,31 +161,85 @@ class BroadcastManager:
         status = "开启" if self.hourly_broadcast_enabled else "关闭"
         return self.hourly_broadcast_enabled, f"✅ 整点广播已{status}并保存设置"
     
-    def clear_custom_content(self) -> tuple[bool, str]:
+    def clear_custom_content(self, adapter_id: str = None) -> tuple[bool, str]:
         """
-        清除自定义广播内容，恢复为默认内容
-        
-        Returns:
-            tuple[bool, str]: (成功标志, 结果消息)
+        清除指定适配器的自定义广播内容，恢复为默认内容
         """
-        self.custom_broadcast_content = None
-        
-        # 保存配置到文件
-        self.save_config()
-        
-        return True, "✅ 已清除自定义广播内容，恢复为默认内容并保存设置"
+        if self.custom_broadcast_content is not None:
+            if adapter_id:
+                if adapter_id in self.custom_broadcast_content:
+                    del self.custom_broadcast_content[adapter_id]
+                    self.save_config()
+                    return True, f"✅ 已清除适配器 {adapter_id} 的自定义广播内容，恢复为默认内容并保存设置"
+                else:
+                    return False, f"ℹ️ 适配器 {adapter_id} 没有自定义广播内容"
+            else:
+                self.custom_broadcast_content = None
+                self.save_config()
+                return True, "✅ 已清除所有自定义广播内容，恢复为默认内容并保存设置"
+        return False, "ℹ️ 没有自定义广播内容"
     
-    def get_current_config_display(self) -> str:
-        """获取当前配置的显示文本"""
-        current_config = self._format_broadcast_config_display()
-        return f"❓ 当前整点广播配置:\n{current_config}\n\n💡 使用方法:\n" \
-               f"📝 简单模式: mc广播设置 [文本内容]\n" \
-               f"🎨 富文本模式: mc广播设置 [文本,颜色,点击命令,悬浮文本]|[文本2,颜色2,点击命令2,悬浮文本2]\n" \
-               f"📋 示例: mc广播设置 🕐,gold,true,,|整点报时！时间：{{time}},aqua,false,/time query daytime,点击查询时间"
+    def get_current_config_display(self, adapter_id: str = None) -> str:
+        """获取指定适配器的当前配置的显示文本"""
+        if adapter_id:
+            content = None
+            if self.custom_broadcast_content and adapter_id in self.custom_broadcast_content:
+                content = self.custom_broadcast_content[adapter_id]
+                title = f"适配器 {adapter_id} 的自定义广播内容"
+            else:
+                content = self.hourly_broadcast_content
+                title = f"适配器 {adapter_id} 的默认整点广播内容"
+        else:
+            # 显示所有适配器的内容
+            lines = ["📋 所有适配器自定义广播内容:"]
+            if self.custom_broadcast_content:
+                for aid, content in self.custom_broadcast_content.items():
+                    lines.append(f"- {aid}:")
+                    for i, component in enumerate(content, 1):
+                        line = f"  {i}. 文本: {component['text']}"
+                        if component['color'] != 'white':
+                            line += f" | 颜色: {component['color']}"
+                        if component['bold']:
+                            line += f" | 粗体: 是"
+                        if "click_event" in component:
+                            click_event = component["click_event"]
+                            if click_event.get("value"):
+                                line += f" | 点击: {click_event['value']}"
+                                line += f" | 点击类型: {click_event.get('action', 'SUGGEST_COMMAND')}"
+                        if "hover_event" in component:
+                            hover_event = component["hover_event"]
+                            hover_text = ''
+                            if hover_event.get("contents") and len(hover_event["contents"]) > 0:
+                                hover_text = hover_event["contents"][0].get("text", "")
+                            if hover_text:
+                                line += f" | 悬浮: {hover_text}"
+                        lines.append(line)
+            return "\n".join(lines)
+        # 单适配器内容
+        lines = [f"📋 {title}:"]
+        for i, component in enumerate(content, 1):
+            line = f"  {i}. 文本: {component['text']}"
+            if component['color'] != 'white':
+                line += f" | 颜色: {component['color']}"
+            if component['bold']:
+                line += f" | 粗体: 是"
+            if "click_event" in component:
+                click_event = component["click_event"]
+                if click_event.get("value"):
+                    line += f" | 点击: {click_event['value']}"
+                    line += f" | 点击类型: {click_event.get('action', 'SUGGEST_COMMAND')}"
+            if "hover_event" in component:
+                hover_event = component["hover_event"]
+                hover_text = ''
+                if hover_event.get("contents") and len(hover_event["contents"]) > 0:
+                    hover_text = hover_event["contents"][0].get("text", "")
+                if hover_text:
+                    line += f" | 悬浮: {hover_text}"
+            lines.append(line)
+        return "\n".join(lines)
     
     def _parse_broadcast_config(self, config_string: str) -> List[Dict[str, Any]]:
         """解析广播配置字符串"""
-        # 如果包含 | 符号，说明是富文本模式
         if "|" in config_string:
             components = []
             parts = config_string.split("|")
@@ -223,13 +262,23 @@ class BroadcastManager:
                     if click_action_input in ["SUGGEST_COMMAND", "RUN_COMMAND", "OPEN_URL"]:
                         click_action = click_action_input
                 
+                # 新格式
                 component = {
                     "text": params[0] if params[0] else "",
                     "color": params[1] if len(params) > 1 and params[1] else "white",
                     "bold": params[2].lower() == "true" if len(params) > 2 and params[2] else False,
-                    "click_command": params[3] if len(params) > 3 and params[3] else "",
-                    "hover_text": params[4] if len(params) > 4 and params[4] else "",
-                    "click_action": click_action
+                    "click_event": {
+                        "action": click_action,
+                        "value": params[3] if len(params) > 3 and params[3] else ""
+                    },
+                    "hover_event": {
+                        "action": "SHOW_TEXT",
+                        "contents": [
+                            {
+                                "text": params[4] if len(params) > 4 and params[4] else ""
+                            }
+                        ]
+                    }
                 }
                 
                 if component["text"]:  # 只添加非空文本的组件
@@ -245,20 +294,27 @@ class BroadcastManager:
                 "text": config_string,
                 "color": "aqua",
                 "bold": False,
-                "click_command": "/time query daytime",
-                "hover_text": "🤖 AstrBot 整点报时系统",
-                "click_action": "SUGGEST_COMMAND"
+                "click_event": {
+                    "action": "SUGGEST_COMMAND",
+                    "value": "/time query daytime"
+                },
+                "hover_event": {
+                    "action": "SHOW_TEXT",
+                    "contents": [
+                        {"text": "🤖 AstrBot 整点报时系统"}
+                    ]
+                }
             }]
     
-    def _format_broadcast_config_display(self) -> str:
+    def _format_broadcast_config_display(self, adapter_id: str) -> str:
         """格式化显示当前广播配置"""
         # 显示自定义内容（如果有的话）
-        if self.custom_broadcast_content:
-            content = self.custom_broadcast_content
-            title = "自定义私聊内容"
+        if self.custom_broadcast_content and adapter_id in self.custom_broadcast_content:
+            content = self.custom_broadcast_content[adapter_id]
+            title = f"适配器 {adapter_id} 的自定义广播内容"
         else:
             content = self.hourly_broadcast_content
-            title = "默认整点广播内容"
+            title = f"适配器 {adapter_id} 的默认整点广播内容"
         
         lines = [f"📋 {title}:"]
         for i, component in enumerate(content, 1):
@@ -267,13 +323,18 @@ class BroadcastManager:
                 line += f" | 颜色: {component['color']}"
             if component['bold']:
                 line += f" | 粗体: 是"
-            if component['click_command']:
-                line += f" | 点击: {component['click_command']}"
-                # 显示点击事件类型
-                click_action = component.get('click_action', 'SUGGEST_COMMAND')
-                line += f" | 点击类型: {click_action}"
-            if component['hover_text']:
-                line += f" | 悬浮: {component['hover_text']}"
+            if "click_event" in component:
+                click_event = component["click_event"]
+                if click_event.get("value"):
+                    line += f" | 点击: {click_event['value']}"
+                    line += f" | 点击类型: {click_event.get('action', 'SUGGEST_COMMAND')}"
+            if "hover_event" in component:
+                hover_event = component["hover_event"]
+                hover_text = ''
+                if hover_event.get("contents") and len(hover_event["contents"]) > 0:
+                    hover_text = hover_event["contents"][0].get("text", "")
+                if hover_text:
+                    line += f" | 悬浮: {hover_text}"
             lines.append(line)
         return "\n".join(lines)
     
@@ -378,22 +439,15 @@ class BroadcastManager:
         total_components = len(components)
         
         # 逐个发送每个组件
-        for i, component_config in enumerate(components):
+        for i, component in enumerate(components):
             # 处理时间变量替换
             current_time = datetime.datetime.now().strftime("%H:%M")
-            component_config = component_config.copy()  # 创建副本避免修改原始配置
-            component_config["text"] = component_config["text"].format(time=current_time)
-            
-            # 使用MessageBuilder创建组件
-            component = MessageBuilder.create_component_from_config(component_config)
+            component = component.copy()  # 创建副本避免修改原始配置
+            component["text"] = component["text"].format(time=current_time)
             
             # 清理组件
             component = MessageBuilder.clean_component(component)
             
-            # 验证组件
-            if not MessageBuilder.validate_component(component):
-                logger.warning(f"跳过无效的广播组件: {component_config}")
-                continue
             
             # 创建广播消息
             broadcast_msg = MessageBuilder.create_broadcast_message([component])
@@ -429,21 +483,10 @@ class BroadcastManager:
     def is_enabled(self) -> bool:
         """检查整点广播是否启用"""
         return self.hourly_broadcast_enabled
-    
-    def get_broadcast_content_for_private_message(self) -> List[Dict[str, Any]]:
-        """获取用于私聊的广播内容"""
-        # 如果有自定义内容，使用自定义内容
-        if self.custom_broadcast_content:
-            return self.custom_broadcast_content
-        
-        # 如果没有自定义内容，返回默认的命令指南
-        default_guide_content = [{
-            "text": "📋 服务器命令指南\n\n🎮 游戏相关命令：\n• #qq [消息] - 发送消息到QQ群\n• #wiki [词条] - 查询Minecraft Wiki\n• #astr [指令] - 执行AstrBot指令\n\n🔧 管理命令：\n• #重启qq - 重启QQ连接\n\n💡 提示：在聊天框中输入以上命令即可使用",
-            "color": "yellow",
-            "bold": False,
-            "click_command": "",
-            "hover_text": "服务器命令使用指南",
-            "click_action": "SUGGEST_COMMAND"
-        }]
-        
-        return default_guide_content 
+
+    def get_broadcast_content(self, adapter_id: str) -> list:
+        """获取指定适配器的广播内容，优先自定义，没有则用默认"""
+        if self.custom_broadcast_content and adapter_id in self.custom_broadcast_content:
+            return self.custom_broadcast_content[adapter_id]
+        else:
+            return self.hourly_broadcast_content 

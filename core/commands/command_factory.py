@@ -9,7 +9,8 @@ from .builtin import (
     HelpCommand,
     RestartCommand,
     WikiCommand,
-    AstrBotCommand
+    AstrBotCommand,
+    LandmarkCommand
 )
 
 
@@ -35,11 +36,6 @@ class CommandFactory:
             commands.append(qq_cmd)
             logger.debug("创建QQ转发命令")
             
-            # 创建重启命令
-            restart_cmd = RestartCommand(message_handler)
-            commands.append(restart_cmd)
-            logger.debug("创建重启命令")
-            
             # 创建Wiki查询命令
             wiki_cmd = WikiCommand(message_handler)
             commands.append(wiki_cmd)
@@ -49,6 +45,11 @@ class CommandFactory:
             astrbot_cmd = AstrBotCommand(message_handler)
             commands.append(astrbot_cmd)
             logger.debug("创建AstrBot指令代理命令")
+            
+            # 创建Landmark路标命令
+            landmark_cmd = LandmarkCommand(message_handler)
+            commands.append(landmark_cmd)
+            logger.debug("创建Landmark路标命令")
             
         except Exception as e:
             logger.error(f"创建内置命令时发生错误: {e}")

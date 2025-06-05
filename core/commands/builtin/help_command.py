@@ -30,18 +30,15 @@ class HelpCommand(BaseCommand):
             await send_mc_message_callback("无法获取玩家UUID，无法发送私聊消息")
             return True
         
-        if adapter and hasattr(adapter, 'send_private_message'):
-            try:
-                plugin_instance = getattr(adapter, 'plugin_instance', None)
-                
-                if plugin_instance and hasattr(plugin_instance, 'broadcast_manager'):
-                    broadcast_content = plugin_instance.broadcast_manager.get_broadcast_content_for_private_message()
-                    await adapter.send_private_message(player_uuid, broadcast_content)
-                else:
-                    await send_mc_message_callback("无法获取广播管理器，请联系管理员")
-            except Exception as e:
-                logger.error(f"发送命令指南私聊时出错: {str(e)}")
-                await send_mc_message_callback(f"发送命令指南时出错: {str(e)}")
-        else:
-            await send_mc_message_callback("当前不支持私聊功能")
+        try:
+            plugin_instance = getattr(adapter, 'plugin_instance', None)
+            
+            if plugin_instance and hasattr(plugin_instance, 'broadcast_manager'):
+                adapter_id = getattr(adapter, 'adapter_id', None)
+                broadcast_content = plugin_instance.broadcast_manager.get_broadcast_content(adapter_id)
+                await adapter.send_private_message(player_uuid, broadcast_content)
+            else:
+                await send_mc_message_callback("无法获取广播管理器，请联系管理员")
+        except Exception as e:
+            logger.error(f"发送命令指南私聊时出错: {str(e)}")
         return True

@@ -56,6 +56,7 @@
 
 ## 更新日志
 
+- v1.6.1 增加多服务器分别设置广播内容功能，修改广播数据结构
 - v1.6.0 增加多服务器互通功能，支持服务器间消息转发
 - v1.5.1 修复bug，注册命令更简单、可维护
 - v1.5.0 增加wiki查询，增加整点广播支持富文本内容
@@ -112,19 +113,19 @@ mc命令:
 
 ### 管理命令
 
-#### `/mc广播设置 [配置]`
+#### `/mc广播设置 [adapter.id] [配置]`
 设置整点广播的富文本内容
 - **权限**: 仅管理员
 - **格式**: 支持简单文本或富文本组合模式
-- **简单模式**: `mc广播设置 整点报时！当前时间：{time}`
-- **富文本模式**: `mc广播设置 文本,颜色,粗体,点击命令,悬浮文本|文本2,颜色2,粗体2,点击命令2,悬浮文本2`
+- **简单模式**: `mc广播设置 [adapter.id] 整点报时！当前时间：{time}`
+- **富文本模式**: `mc广播设置 [adapter.id] 文本,颜色,粗体,点击命令,悬浮文本|文本2,颜色2,粗体2,点击命令2,悬浮文本2`
 - **参数说明**: 
   - `{time}` - 当前时间变量
   - 颜色：gold、red、aqua、white等Minecraft颜色
   - 粗体：true/false
 - **示例**: 
-  - 简单: `/mc广播设置 🕐 整点报时！当前时间：{time}`
-  - 富文本: `/mc广播设置 🕐,gold,true,,|整点报时！时间：{time},aqua,false,/time query daytime,点击查询游戏时间`
+  - 简单: `/mc广播设置 [adapter.id] 🕐 整点报时！当前时间：{time}`
+  - 富文本: `/mc广播设置 [adapter.id] 🕐,gold,true,,|整点报时！时间：{time},aqua,false,/time query daytime,点击查询游戏时间`
 
 #### `/mc广播开关`
 开启或关闭整点广播功能
@@ -185,7 +186,6 @@ mc命令:
 ### Minecraft命令
 - `#astr [消息]` - 发起AI对话
 - `#qq [消息]` - 向QQ群发送消息
-- `#重启qq` - 重启QQ机器人连接
 
 ## 技术说明
 
@@ -196,47 +196,6 @@ mc命令:
   - `click_event`: 点击执行命令或打开链接
   - `hover_event`: 悬浮显示额外信息
 - **组合消息**: 多个文本组件组成的复杂消息
-
-#### 整点广播富文本示例
-配置命令：
-```bash
-/mc广播设置 🕐,gold,true,,|整点报时！时间：{time},aqua,false,/time query daytime,点击查询时间
-```
-
-生成的JSON格式：
-```json
-{
-  "api": "broadcast",
-  "data": {
-    "message": [
-      {
-        "type": "text",
-        "data": {
-          "text": "🕐",
-          "color": "gold",
-          "bold": true
-        }
-      },
-      {
-        "type": "text",
-        "data": {
-          "text": "整点报时！时间：12:00",
-          "color": "aqua",
-          "bold": false,
-          "hover_event": {
-            "action": "SHOW_TEXT",
-            "text": [{"text": "点击查询时间", "color": "yellow", "bold": true}]
-          },
-          "click_event": {
-            "action": "SUGGEST_COMMAND",
-            "value": "/time query daytime"
-          }
-        }
-      }
-    ]
-  }
-}
-```
 
 ## 依赖要求
 

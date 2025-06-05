@@ -226,15 +226,27 @@ mc:
 
         # 手动解析命令参数
         command_content = event.message_str.replace("mc广播设置", "", 1).strip()
-        
         if not command_content:
-            # 显示当前配置
+            # 无参数时显示所有配置
             return self.plugin.broadcast_manager.get_current_config_display()
-
-        # 解析并设置新的广播内容
-        success, message = self.plugin.broadcast_manager.set_broadcast_content(command_content)
+        tokens = command_content.split(None, 1)
+        if len(tokens) < 2:
+            return "❌ 参数不足！\n用法：/mc广播设置 <adapter_id> <消息内容>"
+        adapter_id, msg_content = tokens[0], tokens[1].strip()
+        if not adapter_id or not msg_content:
+            return "❌ 参数错误！\n用法：/mc广播设置 <adapter_id> <消息内容>"
+        # 检查适配器是否存在
+        adapter = None
+        for a in self.plugin.adapter_router.get_all_adapters():
+            if a.adapter_id == adapter_id:
+                adapter = a
+                break
+        if not adapter:
+            return f"❌ 未找到适配器 {adapter_id}，请检查ID是否正确"
+        # 设置内容
+        success, message = self.plugin.broadcast_manager.set_broadcast_content(adapter_id, msg_content)
         if success:
-            logger.info(f"整点广播内容已更新")
+            logger.info(f"适配器 {adapter_id} 整点广播内容已更新")
         return message
     
     async def handle_broadcast_toggle_command(self, event: AstrMessageEvent):

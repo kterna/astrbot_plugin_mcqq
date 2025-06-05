@@ -52,17 +52,10 @@ class MessageSender:
             total_components = len(components)
             
             # 逐个发送每个组件
-            for i, component_config in enumerate(components):
-                # 使用MessageBuilder从配置创建组件
-                component = MessageBuilder.create_component_from_config(component_config)
+            for i, component in enumerate(components):
                 
                 # 清理组件，移除None值
                 component = MessageBuilder.clean_component(component)
-                
-                # 验证组件
-                if not MessageBuilder.validate_component(component):
-                    logger.warning(f"跳过无效的私聊消息组件: {component_config}")
-                    continue
                 
                 # 创建私聊消息
                 private_msg = MessageBuilder.create_private_message(uuid, component)

@@ -5,11 +5,13 @@ from .help_command import HelpCommand
 from .restart_command import RestartCommand
 from .wiki_command import WikiCommand
 from .astrbot_command import AstrBotCommand
+from .landmark_command import LandmarkCommand
 
 __all__ = [
     'QQCommand',
     'HelpCommand', 
     'RestartCommand',
     'WikiCommand',
-    'AstrBotCommand'
+    'AstrBotCommand',
+    'LandmarkCommand'
 ]

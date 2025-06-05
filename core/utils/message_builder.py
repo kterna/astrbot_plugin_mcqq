@@ -7,7 +7,7 @@ class MessageBuilder:
     """消息构建工具类，用于构建发送到Minecraft服务器的各种消息格式"""
     
     @staticmethod
-    def create_text_component(
+    def create_text_event(
         text: str,
         color: str = "white",
         bold: bool = False,
@@ -109,7 +109,7 @@ class MessageBuilder:
             mc_message = message
         
         # 创建文本组件
-        text_component = MessageBuilder.create_text_component(mc_message)
+        text_component = MessageBuilder.create_text_event(mc_message)
         
         # 创建广播消息
         return MessageBuilder.create_broadcast_message([text_component])
@@ -125,7 +125,7 @@ class MessageBuilder:
     ) -> Dict[str, Any]:
         """创建富文本广播消息"""
         # 创建基础文本组件
-        component = MessageBuilder.create_text_component(text, color, bold)
+        component = MessageBuilder.create_text_event(text, color, bold)
         
         # 添加悬浮事件
         if hover_text:
@@ -149,7 +149,7 @@ class MessageBuilder:
         components = []
         
         # 添加管理员公告前缀
-        admin_prefix = MessageBuilder.create_text_component(
+        admin_prefix = MessageBuilder.create_text_event(
             "[管理员公告] ",
             color="red",
             bold=True
@@ -157,7 +157,7 @@ class MessageBuilder:
         components.append(admin_prefix)
         
         # 添加主要内容
-        main_content = MessageBuilder.create_text_component(
+        main_content = MessageBuilder.create_text_event(
             text,
             color="white",
             bold=False
@@ -174,31 +174,6 @@ class MessageBuilder:
         
         # 创建广播消息
         return MessageBuilder.create_broadcast_message(components)
-    
-    @staticmethod
-    def create_component_from_config(config: Dict[str, Any]) -> Dict[str, Any]:
-        """从配置字典创建消息组件"""
-        # 创建基础文本组件
-        component = MessageBuilder.create_text_component(
-            text=config.get("text", ""),
-            color=config.get("color", "white"),
-            bold=config.get("bold", False)
-        )
-        
-        # 添加悬浮事件
-        hover_text = config.get("hover_text", "")
-        if hover_text:
-            hover_color = config.get("hover_color", "yellow")
-            hover_bold = config.get("hover_bold", True)
-            MessageBuilder.add_hover_event(component, hover_text, hover_color, hover_bold)
-        
-        # 添加点击事件
-        click_command = config.get("click_command", "")
-        if click_command:
-            click_action = config.get("click_action", "SUGGEST_COMMAND")
-            MessageBuilder.add_click_event(component, click_command, click_action)
-        
-        return component
     
     @staticmethod
     def log_message(message: Dict[str, Any], message_type: str = "消息"):
