@@ -310,7 +310,7 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
         """发送消息到Minecraft服务器"""
         return await self.message_sender.send_broadcast_message(message, sender)
 
-    async def send_mc_rich_message(self, text: str, click_url: str, hover_text: str, color: str = "#E6E6FA"):
+    async def send_rich_message(self, text: str, click_url: str, hover_text: str, color: str = "#E6E6FA"):
         """发送富文本消息到Minecraft服务器"""
         return await self.message_sender.send_rich_message(text, click_url, hover_text, color)
 

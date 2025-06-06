@@ -33,9 +33,9 @@ class HelpCommand(BaseCommand):
         try:
             plugin_instance = getattr(adapter, 'plugin_instance', None)
             
-            if plugin_instance and hasattr(plugin_instance, 'broadcast_manager'):
+            if plugin_instance and hasattr(plugin_instance, 'broadcast_config_manager'):
                 adapter_id = getattr(adapter, 'adapter_id', None)
-                broadcast_content = plugin_instance.broadcast_manager.get_broadcast_content(adapter_id)
+                broadcast_content = plugin_instance.broadcast_config_manager.get_broadcast_content(adapter_id)
                 await adapter.send_private_message(player_uuid, broadcast_content)
             else:
                 await send_mc_message_callback("无法获取广播管理器，请联系管理员")

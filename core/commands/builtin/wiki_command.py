@@ -48,8 +48,8 @@ class WikiCommand(BaseCommand):
                 
                 hover_text = f"🎓 点击查看 {title} 的完整Wiki页面"
                 
-                if adapter and hasattr(adapter, 'send_mc_rich_message'):
-                    await adapter.send_mc_rich_message(display_text, wiki_url, hover_text)
+                if adapter and hasattr(adapter, 'send_rich_message'):
+                    await adapter.send_rich_message(display_text, wiki_url, hover_text)
                 else:
                     fallback_message = f"{display_text}\n🔗 查看完整页面: {wiki_url}"
                     await send_mc_message_callback(fallback_message)

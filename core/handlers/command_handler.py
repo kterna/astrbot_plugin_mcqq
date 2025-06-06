@@ -228,7 +228,7 @@ mc:
         command_content = event.message_str.replace("mc广播设置", "", 1).strip()
         if not command_content:
             # 无参数时显示所有配置
-            return self.plugin.broadcast_manager.get_current_config_display()
+            return self.plugin.broadcast_config_manager.get_current_config_display()
         tokens = command_content.split(None, 1)
         if len(tokens) < 2:
             return "❌ 参数不足！\n用法：/mc广播设置 <adapter_id> <消息内容>"
@@ -244,110 +244,75 @@ mc:
         if not adapter:
             return f"❌ 未找到适配器 {adapter_id}，请检查ID是否正确"
         # 设置内容
-        success, message = self.plugin.broadcast_manager.set_broadcast_content(adapter_id, msg_content)
+        success, message = self.plugin.broadcast_config_manager.set_broadcast_content(adapter_id, msg_content)
         if success:
             logger.info(f"适配器 {adapter_id} 整点广播内容已更新")
         return message
     
     async def handle_broadcast_toggle_command(self, event: AstrMessageEvent):
         """处理mc广播开关命令"""
-        # 仅管理员可以使用此命令
         if not event.is_admin():
             return "⛔ 只有管理员才能使用此命令"
-
-        # 切换广播状态
-        new_status, message = self.plugin.broadcast_manager.toggle_broadcast()
-        logger.info(f"整点广播已{'开启' if new_status else '关闭'}")
+        
+        _, message = self.plugin.broadcast_config_manager.toggle_broadcast()
         return message
-    
+
     async def handle_broadcast_clear_command(self, event: AstrMessageEvent):
         """处理mc广播清除命令"""
-        # 仅管理员可以使用此命令
         if not event.is_admin():
             return "⛔ 只有管理员才能使用此命令"
+            
+        # 解析参数
+        command_content = event.message_str.replace("mc广播清除", "", 1).strip()
+        adapter_id = command_content if command_content else None
 
-        # 清除自定义广播内容
-        success, message = self.plugin.broadcast_manager.clear_custom_content()
-        if success:
-            logger.info("已清除自定义广播内容")
+        _, message = self.plugin.broadcast_config_manager.clear_custom_content(adapter_id)
         return message
-    
+
     async def handle_broadcast_test_command(self, event: AstrMessageEvent):
         """处理mc广播测试命令"""
         # 仅管理员可以使用此命令
         if not event.is_admin():
             return "⛔ 只有管理员才能使用此命令"
-
-        # 获取所有适配器
-        adapters = self.plugin.adapter_router.get_all_adapters()
-        if not adapters:
-            return "❌ 未找到任何Minecraft平台适配器，请确保适配器已正确注册并启用"
-
-        # 检查连接状态
-        connected_adapters = []
-        for adapter in adapters:
-            if await adapter.is_connected():
-                connected_adapters.append(adapter)
-
-        if not connected_adapters:
-            return "❌ 所有Minecraft适配器都未连接，请检查连接状态"
-
-        # 获取广播内容
-        content = self.plugin.broadcast_manager.hourly_broadcast_content
         
-        # 发送广播
-        success = await self.plugin.broadcast_manager.send_rich_broadcast(connected_adapters, content)
+        # 解析参数
+        command_content = event.message_str.replace("mc广播测试", "", 1).strip()
+        adapter_id = command_content if command_content else None
         
-        if success:
-            return f"✅ 测试广播已发送到 {len(connected_adapters)} 个服务器"
-        else:
-            return "❌ 发送测试广播失败，请检查连接状态"
-    
+        logger.info(f"用户 {event.get_sender_id()} 触发了测试广播")
+
+        # 执行测试广播
+        await self.plugin.broadcast_scheduler.execute_hourly_broadcast()
+        
+        return "✅ 已触发测试广播"
+
     async def handle_custom_broadcast_command(self, event: AstrMessageEvent):
         """处理mc自定义广播命令"""
-        # 仅管理员可以使用此命令
         if not event.is_admin():
             return "⛔ 只有管理员才能使用此命令"
 
-        # 手动解析命令参数
         command_content = event.message_str.replace("mc自定义广播", "", 1).strip()
         
-        if not command_content:
-            return "❓ 使用方法: mc自定义广播 [文本]|[点击命令]|[悬浮文本]\n💡 示例: mc自定义广播 欢迎来到服务器！|/say test|点击发送测试"
-
-        # 解析三个参数，用|分隔
-        params = command_content.split("|")
-        
-        if len(params) != 3:
-            return "❌ 参数格式错误！\n🔧 正确格式: mc自定义广播 [文本]|[点击命令]|[悬浮文本]\n💡 示例: mc自定义广播 欢迎来到服务器！|/say test|点击发送测试"
-
-        text_content = params[0].strip()
-        click_value = params[1].strip()
-        hover_text = params[2].strip()
+        # 解析参数
+        parts = command_content.split('|')
+        text_content = parts[0].strip() if len(parts) > 0 else ""
+        click_value = parts[1].strip() if len(parts) > 1 else ""
+        hover_text = parts[2].strip() if len(parts) > 2 else ""
 
         if not text_content:
-            return "❌ 文本内容不能为空！"
+            return "❌ 请提供广播的文本内容"
 
         # 获取所有适配器
         adapters = self.plugin.adapter_router.get_all_adapters()
         if not adapters:
-            return "❌ 未找到任何Minecraft平台适配器，请确保适配器已正确注册并启用"
-
-        # 检查连接状态
-        connected_adapters = []
-        for adapter in adapters:
-            if await adapter.is_connected():
-                connected_adapters.append(adapter)
-
-        if not connected_adapters:
-            return "❌ 所有Minecraft适配器都未连接，请检查连接状态"
-
-        # 发送自定义广播
-        success = await self.plugin.broadcast_manager.send_custom_rich_broadcast(
-            connected_adapters, text_content, click_value, hover_text
-        )
+            return "❌ 未找到任何Minecraft适配器"
         
-        if success:
-            return f"✅ 自定义广播已发送到 {len(connected_adapters)} 个服务器\n📝 文本: {text_content}\n🖱️ 点击: {click_value}\n💬 悬浮: {hover_text}"
-        else:
-            return "❌ 发送自定义广播失败，请检查连接状态" 
+        try:
+            success = await self.plugin.broadcast_sender.send_custom_rich_broadcast(adapters, text_content, click_value, hover_text)
+            if success:
+                return "✅ 自定义广播已发送"
+            else:
+                return "❌ 发送自定义广播失败，请查看日志"
+        except Exception as e:
+            logger.error(f"发送自定义广播时出错: {str(e)}")
+            return f"❌ 发送自定义广播时出错: {str(e)}" 

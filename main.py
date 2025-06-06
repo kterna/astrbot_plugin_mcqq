@@ -12,7 +12,9 @@ from typing import Optional, List
 from .core.adapters.minecraft_adapter import MinecraftPlatformAdapter
 # 导入管理器
 from .core.managers.rcon_manager import RconManager
-from .core.managers.broadcast_manager import BroadcastManager
+from .core.managers.broadcast_config import BroadcastConfigManager
+from .core.managers.broadcast_sender import BroadcastSender
+from .core.managers.broadcast_scheduler import BroadcastScheduler
 # 导入命令处理器
 from .core.handlers.command_handler import CommandHandler
 # 导入路由管理器
@@ -32,7 +34,9 @@ class MCQQPlugin(Star):
 
         # 初始化管理器
         self.rcon_manager = RconManager()
-        self.broadcast_manager = BroadcastManager(str(self.data_dir))
+        self.broadcast_config_manager = BroadcastConfigManager(str(self.data_dir))
+        self.broadcast_sender = BroadcastSender()
+        self.broadcast_scheduler = BroadcastScheduler(self.broadcast_config_manager, self._broadcast_callback)
         
         # 初始化路由管理器
         self.adapter_router = AdapterRouter(str(self.data_dir))
@@ -102,14 +106,13 @@ class MCQQPlugin(Star):
     async def start_hourly_broadcast(self):
         """启动整点广播任务"""
         await asyncio.sleep(3)  # 等待适配器初始化
-        logger.info("启动整点广播任务")
-        await self.broadcast_manager.start_hourly_broadcast(self._broadcast_callback)
+        self.broadcast_scheduler.start()
 
     async def _broadcast_callback(self, components):
         """广播回调函数"""
-        adapter = await self.get_all_minecraft_adapter()
-        if adapter:
-            return await self.broadcast_manager.send_rich_broadcast(adapter, components)
+        adapters = await self.get_all_minecraft_adapter()
+        if adapters:
+            return await self.broadcast_sender.send_rich_broadcast(adapters, components)
         return False
 
     async def get_all_minecraft_adapter(self) -> List[MinecraftPlatformAdapter]:
@@ -215,17 +218,13 @@ class MCQQPlugin(Star):
         await self.adapter_router.close_all_adapters()
         
         # 保存广播配置
-        self.broadcast_manager.save_config()
+        self.broadcast_config_manager.save_config()
         
         # 关闭RCON连接
         await self.rcon_manager.close()
         
         # 取消整点广播任务
-        if self.broadcast_manager.hourly_broadcast_task is not None:
-            task = self.broadcast_manager.hourly_broadcast_task
-            if not task.done():
-                task.cancel()
-                logger.info("已取消整点广播任务")
+        self.broadcast_scheduler.stop()
         
         # 清理平台适配器注册信息
         try:
