@@ -7,7 +7,6 @@ from .command_registry import CommandRegistry
 from .builtin import (
     QQCommand,
     HelpCommand,
-    RestartCommand,
     WikiCommand,
     AstrBotCommand,
     LandmarkCommand
