@@ -8,7 +8,6 @@ from astrbot import logger
 from ..events.minecraft_event import MinecraftMessageEvent
 from ..config.server_types import Vanilla, Spigot, Fabric, Forge, Neoforge
 from ..utils.bot_filter import BotFilter
-from ..managers.process_manager import ProcessManager
 from ..commands.command_factory import CommandFactory
 
 
@@ -19,8 +18,7 @@ class MessageHandler:
                  server_name: str,
                  qq_message_prefix: str,
                  enable_join_quit: bool,
-                 bot_filter: BotFilter,
-                 process_manager: ProcessManager):
+                 bot_filter: BotFilter):
         """
         初始化消息处理器
         
@@ -29,13 +27,11 @@ class MessageHandler:
             qq_message_prefix: QQ消息前缀
             enable_join_quit: 是否启用进入/退出消息
             bot_filter: 假人过滤器
-            process_manager: 进程管理器
         """
         self.server_name = server_name
         self.qq_message_prefix = qq_message_prefix
         self.enable_join_quit = enable_join_quit
         self.bot_filter = bot_filter
-        self.process_manager = process_manager
         
         # 使用命令工厂创建命令注册表
         self.command_registry = CommandFactory.setup_command_registry(self)

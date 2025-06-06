@@ -2,7 +2,7 @@
 
 一个通过鹊桥模组实现Minecraft平台适配器，以及mcqq互联的插件。
 [![moe_counter](https://count.getloli.com/get/@astrbot_plugin_mcqq?theme=moebooru)](https://github.com/kterna/astrbot_plugin_mcqq)
-
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/kterna/astrbot_plugin_mcqq)
 ## 功能
 
 - 将 Minecraft 聊天消息转发到 QQ 群

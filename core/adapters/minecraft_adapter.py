@@ -22,7 +22,6 @@ from ..managers.group_binding_manager import GroupBindingManager
 from ..managers.websocket_manager import WebSocketManager
 from ..managers.message_sender import MessageSender
 from ..utils.bot_filter import BotFilter
-from ..managers.process_manager import ProcessManager
 from ..handlers.message_handler import MessageHandler
 
 @register_platform_adapter("minecraft", "Minecraft服务器适配器", default_config_tmpl={
@@ -76,13 +75,11 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
             prefix_list=self.config.get("bot_prefix", ["bot_", "Bot_"]),
             suffix_list=self.config.get("bot_suffix", [])
         )
-        self.process_manager = ProcessManager()
         self.message_handler = MessageHandler(
             server_name=self._server_name,
             qq_message_prefix=self.qq_message_prefix,
             enable_join_quit=self.enable_join_quit,
             bot_filter=self.bot_filter,
-            process_manager=self.process_manager
         )
 
         # 加载绑定关系
