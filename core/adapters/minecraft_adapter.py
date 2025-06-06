@@ -302,58 +302,9 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
             except Exception as e:
                 logger.error(f"发送消息到群 {group_id} 时出错: {str(e)}")
 
-    async def send_by_session(self, session: MessageSesion, message_chain: MessageChain):
-        """通过会话发送消息到Minecraft服务器"""
-        try:
-            # 提取消息文本
-            message_text = ""
-            for item in message_chain.chain:
-                if isinstance(item, Plain):
-                    message_text += item.text
-
-            # 获取发送者信息
-            sender_name = session.session_id.split(":")[-1] if ":" in session.session_id else "QQ用户"
-
-            # 发送消息到Minecraft
-            await self.send_mc_message(message_text, sender_name)
-
-            # 调用父类方法
-            await super().send_by_session(session, message_chain)
-        except Exception as e:
-            logger.error(f"发送消息到Minecraft时出错: {str(e)}")
-
-    async def send_minecraft_message(self, message: str, sender: str = None) -> bool:
-        """实现基类的发送消息方法"""
-        logger.debug(f"[{self.adapter_id}] 发送消息到Minecraft: {message} (发送者: {sender})")
-        logger.debug(f"[{self.adapter_id}] 连接状态: {self.connected}")
-        result = await self.send_mc_message(message, sender)
-        logger.debug(f"[{self.adapter_id}] 消息发送结果: {result}")
-        return result
-    
-    async def send_rich_message(self, components: List[Dict[str, Any]]) -> bool:
-        """实现基类的发送富文本消息方法"""
-        try:
-            await self.message_sender.websocket_manager.send_message({
-                "type": "announcement",
-                "components": components
-            })
-            return True
-        except Exception as e:
-            logger.error(f"发送富文本消息失败: {e}")
-            return False
-    
     async def is_connected(self) -> bool:
         """实现基类的连接状态检查方法"""
         return self.connected
-    
-    async def get_server_info(self) -> Dict[str, Any]:
-        """实现基类的获取服务器信息方法"""
-        return {
-            "server_name": self._server_name,
-            "ws_url": self.ws_url,
-            "connected": self.connected,
-            "bound_groups": self.binding_manager.get_all_bindings()
-        }
 
     async def send_mc_message(self, message: str, sender: str = None):
         """发送消息到Minecraft服务器"""

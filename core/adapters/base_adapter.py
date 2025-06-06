@@ -16,23 +16,8 @@ class BaseMinecraftAdapter(Platform, ABC):
         self.adapter_id = self.config.get("adapter_id", self.__class__.__name__)
         
     @abstractmethod
-    async def send_minecraft_message(self, message: str, sender: str = None) -> bool:
-        """发送消息到Minecraft服务器"""
-        pass
-        
-    @abstractmethod
-    async def send_rich_message(self, components: List[Dict[str, Any]]) -> bool:
-        """发送富文本消息到Minecraft服务器"""
-        pass
-        
-    @abstractmethod
     async def is_connected(self) -> bool:
         """检查适配器是否已连接"""
-        pass
-        
-    @abstractmethod
-    async def get_server_info(self) -> Dict[str, Any]:
-        """获取服务器信息"""
         pass
         
     @property
