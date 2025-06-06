@@ -77,9 +77,18 @@ class WikiUtils:
                     "text": f"你知道吗：{title} - {content}",
                     "color": "#E6E6FA",
                     "bold": False,
-                    "click_command": wiki_url,
-                    "hover_text": "🎓 来自 Minecraft Wiki 的随机知识，点击查看完整页面",
-                    "click_action": "OPEN_URL"
+                    "click_event":{
+                        "action": "OPEN_URL",
+                        "value": wiki_url
+                    },
+                    "hover_event":{
+                        "action": "SHOW_TEXT",
+                        "text": [
+                            {
+                                "text": "🎓 来自 Minecraft Wiki 的随机知识，点击查看完整页面"
+                            }
+                        ]
+                    }
                 }]
                 
                 logger.debug(f"成功创建Wiki广播内容: {title}")
