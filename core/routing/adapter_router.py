@@ -112,7 +112,7 @@ class AdapterRouter:
                 
             if await adapter.is_connected():
                 logger.debug(f"向适配器 {adapter_id} ({adapter.server_name}) 发送消息")
-                task = adapter.send_minecraft_message(message, sender)
+                task = adapter.send_rich_message(message, sender)
                 tasks.append(task)
         
         # 并发发送消息
@@ -133,7 +133,7 @@ class AdapterRouter:
                 continue
                 
             if await adapter.is_connected():
-                task = adapter.send_minecraft_message(message, sender)
+                task = adapter.send_rich_message(message, sender)
                 tasks.append(task)
                 
         if tasks:
