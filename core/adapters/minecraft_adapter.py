@@ -139,140 +139,129 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
 
             # 获取关联的群聊列表
             bound_groups = self.binding_manager.get_bound_groups(server_name)
-                
-            # 处理玩家聊天消息
-            if event_name == server_class.chat:
-                # 提取玩家名称和消息内容
-                player_data = data.get("player", "")
-                player_name = player_data.get("display_name", "")
-    
-                message_content = data.get("message", "")
-                
-                logger.debug(f"[{self.adapter_id}] 收到聊天消息: 玩家={player_name}, 消息={message_content}")
-                
-                # 路由消息到其他适配器（排除假人消息）
-                if self.router and message_content and player_name and not self.bot_filter.is_bot_player(player_name):
-                    logger.debug(f"[{self.adapter_id}] 开始路由聊天消息到其他适配器")
-                    await self.router.route_chat_message(self.adapter_id, message_content, player_name)
-                elif not self.router:
-                    logger.warning(f"[{self.adapter_id}] 路由器未设置，无法转发消息")
-                elif self.bot_filter.is_bot_player(player_name):
-                    logger.debug(f"[{self.adapter_id}] 跳过假人消息: {player_name}")
-                
-                # 原有的消息处理逻辑
-                handled = await self.message_handler.handle_chat_message(
-                    data=data,
-                    server_class=server_class,
-                    bound_groups=bound_groups,
-                    send_to_groups_callback=self.send_to_bound_groups,
-                    send_mc_message_callback=self.send_mc_message,
-                    commit_event_callback=self.commit_event,
-                    platform_meta=self.meta(),
-                    adapter=self
-                )
-                
-                # 设置adapter引用
-                if hasattr(self.message_handler, '_last_event'):
-                    self.message_handler._last_event.adapter = self
-
-            # 处理玩家加入/退出消息
-            elif event_name == server_class.join:
-                player_data = data.get("player", "")
-                player_name = player_data.get("display_name", "")
-                    
-                logger.debug(f"[{self.adapter_id}] 收到玩家加入: {player_name}")
-                
-                # 路由加入消息到其他适配器（排除假人）
-                if self.router and player_name and not self.bot_filter.is_bot_player(player_name):
-                    logger.debug(f"[{self.adapter_id}] 开始路由加入消息到其他适配器")
-                    await self.router.route_player_join(self.adapter_id, player_name)
-                elif not self.router:
-                    logger.warning(f"[{self.adapter_id}] 路由器未设置，无法转发加入消息")
-                elif self.bot_filter.is_bot_player(player_name):
-                    logger.debug(f"[{self.adapter_id}] 跳过假人加入消息: {player_name}")
-                    
-                # 原有的处理逻辑
-                await self.message_handler.handle_player_join_quit(
-                    data=data,
-                    event_name=event_name,
-                    server_class=server_class,
-                    bound_groups=bound_groups,
-                    send_to_groups_callback=self.send_to_bound_groups
-                )
-                
-            elif event_name == server_class.quit:
-                player_data = data.get("player", "")
-                player_name = player_data.get("display_name", "")
-
-                logger.debug(f"[{self.adapter_id}] 收到玩家退出: {player_name}")
-                    
-                # 路由退出消息到其他适配器（排除假人）
-                if self.router and player_name and not self.bot_filter.is_bot_player(player_name):
-                    logger.debug(f"[{self.adapter_id}] 开始路由退出消息到其他适配器")
-                    await self.router.route_player_quit(self.adapter_id, player_name)
-                elif not self.router:
-                    logger.warning(f"[{self.adapter_id}] 路由器未设置，无法转发退出消息")
-                elif self.bot_filter.is_bot_player(player_name):
-                    logger.debug(f"[{self.adapter_id}] 跳过假人退出消息: {player_name}")
-                    
-                # 原有的处理逻辑
-                await self.message_handler.handle_player_join_quit(
-                    data=data,
-                    event_name=event_name,
-                    server_class=server_class,
-                    bound_groups=bound_groups,
-                    send_to_groups_callback=self.send_to_bound_groups
-                )
-
-            # 处理玩家死亡消息
-            elif hasattr(server_class, 'death') and event_name == server_class.death:
-                death_message = data.get("message", "")
-                # 路由死亡消息到其他适配器
-                if self.router and death_message:
-                    await self.router.route_player_death(self.adapter_id, death_message)
-                    
-                # 原有的处理逻辑
-                await self.message_handler.handle_player_death(
-                    data=data,
-                    event_name=event_name,
-                    server_class=server_class,
-                    bound_groups=bound_groups,
-                    send_to_groups_callback=self.send_to_bound_groups
-                )
+            
+            # 使用映射表简化事件处理
+            event_handlers = {
+                server_class.chat: self._handle_chat_event,
+                server_class.join: self._handle_join_event,
+                server_class.quit: self._handle_quit_event,
+            }
+            
+            # 添加死亡事件处理（如果服务器类型支持）
+            if hasattr(server_class, 'death'):
+                event_handlers[server_class.death] = self._handle_death_event
+            
+            # 查找并执行对应的处理器
+            handler = event_handlers.get(event_name)
+            if handler:
+                await handler(data, server_class, bound_groups)
             else:
-                # 对于其他未特别处理的事件，仍然调用原有的处理方法
-                # 检查是否可能是死亡事件（对于支持death事件的服务器类型）
-                if hasattr(server_class, 'death'):
-                    await self.message_handler.handle_player_death(
-                        data=data,
-                        event_name=event_name,
-                        server_class=server_class,
-                        bound_groups=bound_groups,
-                        send_to_groups_callback=self.send_to_bound_groups
-                    )
-                
-                # 处理玩家加入/退出消息
-                await self.message_handler.handle_player_join_quit(
-                    data=data,
-                    event_name=event_name,
-                    server_class=server_class,
-                    bound_groups=bound_groups,
-                    send_to_groups_callback=self.send_to_bound_groups
-                )
-
-                # 处理玩家死亡消息
-                await self.message_handler.handle_player_death(
-                    data=data,
-                    event_name=event_name,
-                    server_class=server_class,
-                    bound_groups=bound_groups,
-                    send_to_groups_callback=self.send_to_bound_groups
-                )
+                # 对于其他未识别的事件，记录日志但不进行处理
+                logger.debug(f"[{self.adapter_id}] 收到未识别的事件: {event_name}，跳过处理")
 
         except json.JSONDecodeError:
             logger.error(f"无法解析JSON消息: {message}")
         except Exception as e:
             logger.error(f"处理Minecraft消息时出错: {str(e)}")
+
+    async def _handle_chat_event(self, data, server_class, bound_groups):
+        """处理聊天消息事件"""
+        player_data = data.get("player", "")
+        player_name = player_data.get("display_name", "")
+        message_content = data.get("message", "")
+        
+        logger.debug(f"[{self.adapter_id}] 收到聊天消息: 玩家={player_name}, 消息={message_content}")
+        
+        # 路由消息到其他适配器（排除假人消息）
+        if self.router and message_content and player_name and not self.bot_filter.is_bot_player(player_name):
+            logger.debug(f"[{self.adapter_id}] 开始路由聊天消息到其他适配器")
+            await self.router.route_chat_message(self.adapter_id, message_content, player_name)
+        elif not self.router:
+            logger.warning(f"[{self.adapter_id}] 路由器未设置，无法转发消息")
+        elif self.bot_filter.is_bot_player(player_name):
+            logger.debug(f"[{self.adapter_id}] 跳过假人消息: {player_name}")
+        
+        # 原有的消息处理逻辑
+        await self.message_handler.handle_chat_message(
+            data=data,
+            server_class=server_class,
+            bound_groups=bound_groups,
+            send_to_groups_callback=self.send_to_bound_groups,
+            send_mc_message_callback=self.send_mc_message,
+            commit_event_callback=self.commit_event,
+            platform_meta=self.meta(),
+            adapter=self
+        )
+        
+        # 设置adapter引用
+        if hasattr(self.message_handler, '_last_event'):
+            self.message_handler._last_event.adapter = self
+
+    async def _handle_join_event(self, data, server_class, bound_groups):
+        """处理玩家加入事件"""
+        player_data = data.get("player", "")
+        player_name = player_data.get("display_name", "")
+            
+        logger.debug(f"[{self.adapter_id}] 收到玩家加入: {player_name}")
+        
+        # 路由加入消息到其他适配器（排除假人）
+        if self.router and player_name and not self.bot_filter.is_bot_player(player_name):
+            logger.debug(f"[{self.adapter_id}] 开始路由加入消息到其他适配器")
+            await self.router.route_player_join(self.adapter_id, player_name)
+        elif not self.router:
+            logger.warning(f"[{self.adapter_id}] 路由器未设置，无法转发加入消息")
+        elif self.bot_filter.is_bot_player(player_name):
+            logger.debug(f"[{self.adapter_id}] 跳过假人加入消息: {player_name}")
+            
+        # 原有的处理逻辑
+        await self.message_handler.handle_player_join_quit(
+            data=data,
+            event_name=server_class.join,
+            server_class=server_class,
+            bound_groups=bound_groups,
+            send_to_groups_callback=self.send_to_bound_groups
+        )
+
+    async def _handle_quit_event(self, data, server_class, bound_groups):
+        """处理玩家退出事件"""
+        player_data = data.get("player", "")
+        player_name = player_data.get("display_name", "")
+
+        logger.debug(f"[{self.adapter_id}] 收到玩家退出: {player_name}")
+            
+        # 路由退出消息到其他适配器（排除假人）
+        if self.router and player_name and not self.bot_filter.is_bot_player(player_name):
+            logger.debug(f"[{self.adapter_id}] 开始路由退出消息到其他适配器")
+            await self.router.route_player_quit(self.adapter_id, player_name)
+        elif not self.router:
+            logger.warning(f"[{self.adapter_id}] 路由器未设置，无法转发退出消息")
+        elif self.bot_filter.is_bot_player(player_name):
+            logger.debug(f"[{self.adapter_id}] 跳过假人退出消息: {player_name}")
+            
+        # 原有的处理逻辑
+        await self.message_handler.handle_player_join_quit(
+            data=data,
+            event_name=server_class.quit,
+            server_class=server_class,
+            bound_groups=bound_groups,
+            send_to_groups_callback=self.send_to_bound_groups
+        )
+
+    async def _handle_death_event(self, data, server_class, bound_groups):
+        """处理玩家死亡事件"""
+        death_message = data.get("message", "")
+        # 路由死亡消息到其他适配器
+        if self.router and death_message:
+            await self.router.route_player_death(self.adapter_id, death_message)
+            
+        # 原有的处理逻辑
+        await self.message_handler.handle_player_death(
+            data=data,
+            event_name=server_class.death,
+            server_class=server_class,
+            bound_groups=bound_groups,
+            send_to_groups_callback=self.send_to_bound_groups
+        )
 
     async def send_to_bound_groups(self, group_ids: List[str], message: str):
         """发送消息到绑定的QQ群"""

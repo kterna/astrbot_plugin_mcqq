@@ -11,77 +11,71 @@ class CommandHandler:
     def __init__(self, plugin_instance):
         self.plugin = plugin_instance
     
+    def _require_admin(self, func):
+        """管理员权限检查装饰器"""
+        async def wrapper(event: AstrMessageEvent):
+            if not event.is_admin():
+                return "⛔ 只有管理员才能使用此命令"
+            return await func(event)
+        return wrapper
+    
+    def _require_group(self, func):
+        """群聊环境检查装饰器"""
+        async def wrapper(event: AstrMessageEvent):
+            group_id = event.get_group_id()
+            if not group_id:
+                return "❌ 此命令只能在群聊中使用"
+            return await func(event)
+        return wrapper
+    
+    async def _get_target_adapter(self, server_name=None):
+        """获取目标适配器的公共方法"""
+        if server_name:
+            for adapter in self.plugin.adapter_router.get_all_adapters():
+                if adapter.server_name == server_name or adapter.adapter_id == server_name:
+                    return adapter, None
+            return None, f"❌ 未找到名为 {server_name} 的Minecraft适配器"
+        
+        adapter = await self.plugin.get_minecraft_adapter()
+        if not adapter:
+            return None, "❌ 未找到Minecraft平台适配器，请确保适配器已正确注册并启用"
+        return adapter, None
+
     async def handle_bind_command(self, event: AstrMessageEvent):
         """处理mcbind命令，支持多服务器参数"""
-        # 仅管理员可以使用此命令
-        if not event.is_admin():
-            return "⛔ 只有管理员才能使用此命令"
-
+        return await self._require_admin(self._require_group(self._handle_bind_logic))(event)
+    
+    async def _handle_bind_logic(self, event: AstrMessageEvent):
+        """绑定命令的核心逻辑"""
         group_id = event.get_group_id()
-        if not group_id:
-            return "❌ 此命令只能在群聊中使用"
-
-        # 解析参数，允许 /mcbind <服务器名>
         tokens = event.message_str.strip().split()
-        if len(tokens) > 1:
-            server_name = tokens[1]
-        else:
-            server_name = None
+        server_name = tokens[1] if len(tokens) > 1 else None
 
-        # 获取目标适配器
-        adapter = None
-        if server_name:
-            for a in self.plugin.adapter_router.get_all_adapters():
-                if a.server_name == server_name or a.adapter_id == server_name:
-                    adapter = a
-                    break
-            if not adapter:
-                return f"❌ 未找到名为 {server_name} 的Minecraft适配器"
-        else:
-            adapter = await self.plugin.get_minecraft_adapter()
-            if not adapter:
-                return "❌ 未找到Minecraft平台适配器，请确保适配器已正确注册并启用"
+        adapter, error = await self._get_target_adapter(server_name)
+        if error:
+            return error
 
-        # 绑定群聊
         success = await adapter.bind_group(group_id)
         if success:
             logger.info(f"群聊 {group_id} 与服务器 {adapter.adapter_id} 绑定")
             return f"✅ 成功将本群与Minecraft服务器 {adapter.adapter_id} 绑定"
         else:
             return f"ℹ️ 此群已经与Minecraft服务器 {adapter.adapter_id} 绑定"
-    
+
     async def handle_unbind_command(self, event: AstrMessageEvent):
         """处理mcunbind命令，支持多服务器参数"""
-        # 仅管理员可以使用此命令
-        if not event.is_admin():
-            return "⛔ 只有管理员才能使用此命令"
-
+        return await self._require_admin(self._require_group(self._handle_unbind_logic))(event)
+    
+    async def _handle_unbind_logic(self, event: AstrMessageEvent):
+        """解绑命令的核心逻辑"""
         group_id = event.get_group_id()
-        if not group_id:
-            return "❌ 此命令只能在群聊中使用"
-
-        # 解析参数，允许 /mcunbind <服务器名>
         tokens = event.message_str.strip().split()
-        if len(tokens) > 1:
-            server_name = tokens[1]
-        else:
-            server_name = None
+        server_name = tokens[1] if len(tokens) > 1 else None
 
-        # 获取目标适配器
-        adapter = None
-        if server_name:
-            for a in self.plugin.adapter_router.get_all_adapters():
-                if a.server_name == server_name or a.adapter_id == server_name:
-                    adapter = a
-                    break
-            if not adapter:
-                return f"❌ 未找到名为 {server_name} 的Minecraft适配器"
-        else:
-            adapter = await self.plugin.get_minecraft_adapter()
-            if not adapter:
-                return "❌ 未找到Minecraft平台适配器，请确保适配器已正确注册并启用"
+        adapter, error = await self._get_target_adapter(server_name)
+        if error:
+            return error
 
-        # 解除绑定
         success = await adapter.unbind_group(group_id)
         if success:
             logger.info(f"解除群聊 {group_id} 与服务器 {adapter.server_name} 的绑定")
@@ -99,7 +93,7 @@ class CommandHandler:
             return "❌ 未找到任何Minecraft平台适配器，请确保适配器已正确注册并启用"
 
         # 构建状态消息
-        status_msg = "🔌 Minecraft适配器状态:\n"
+        status_msg = "�� Minecraft适配器状态:\n"
         
         connected_count = 0
         bound_count = 0
@@ -140,25 +134,18 @@ class CommandHandler:
     
     async def handle_say_command(self, event: AstrMessageEvent):
         """处理mcsay命令"""
-        message = event.message_str
-        message = message.replace("mcsay", "", 1).strip()
+        message = event.message_str.replace("mcsay", "", 1).strip()
         if not message:
             return "❓ 请提供要发送的消息内容，例如：/mcsay 大家好"
 
-        # 获取发送者信息
         sender_name = event.get_sender_name()
-
-        # 检查是否有可用的适配器
         adapters = self.plugin.adapter_router.get_all_adapters()
+        
         if not adapters:
             return "❌ 未找到任何Minecraft平台适配器，请确保适配器已正确注册并启用"
 
         # 检查连接状态
-        connected_adapters = []
-        for adapter in adapters:
-            if await adapter.is_connected():
-                connected_adapters.append(adapter)
-
+        connected_adapters = [adapter for adapter in adapters if await adapter.is_connected()]
         if not connected_adapters:
             return "❌ 所有Minecraft适配器都未连接，请检查连接状态"
 
@@ -166,14 +153,13 @@ class CommandHandler:
         try:
             await self.plugin.adapter_router.broadcast_message(message, sender_name)
             return ""
-                
         except Exception as e:
             logger.error(f"发送消息到Minecraft服务器时出错: {str(e)}")
             return f"❌ 发送消息失败: {str(e)}"
     
     def handle_help_command(self, event: AstrMessageEvent):
         """处理mc帮助命令，更新多服务器说明"""
-        help_msg = """
+        return """
 Minecraft相关指令菜单:
 qq群:
     '/'或@机器人可发起ai对话
@@ -195,24 +181,20 @@ mc:
     #wiki 词条名称 - 查询Minecraft Wiki
     #重启qq - 若qq机器人无反应大概率是被腾讯踢掉了请输入这个命令
 """
-        return help_msg
     
     async def handle_rcon_command(self, event: AstrMessageEvent):
         """处理rcon命令"""
-        if not event.is_admin():
-            return "⛔ 只有管理员才能使用此命令。"
-
+        return await self._require_admin(self._handle_rcon_logic)(event)
+    
+    async def _handle_rcon_logic(self, event: AstrMessageEvent):
+        """RCON命令的核心逻辑"""
         command_to_execute = event.message_str.replace("rcon", "", 1).strip()
-
-        # 获取适配器（所有RCON操作都需要）
         adapter = await self.plugin.get_minecraft_adapter()
         
-        # 如果是重启命令，需要传递适配器引用
         if command_to_execute == "重启":
             await self.plugin.rcon_manager.initialize(adapter)
             return "🔄 正在尝试重新连接RCON服务器..."
 
-        # 执行RCON命令
         success, message = await self.plugin.rcon_manager.execute_command(
             command_to_execute, event.get_sender_id(), adapter
         )
@@ -220,30 +202,27 @@ mc:
     
     async def handle_broadcast_config_command(self, event: AstrMessageEvent):
         """处理mc广播设置命令"""
-        # 仅管理员可以使用此命令
-        if not event.is_admin():
-            return "⛔ 只有管理员才能使用此命令"
-
-        # 手动解析命令参数
+        return await self._require_admin(self._handle_broadcast_config_logic)(event)
+    
+    async def _handle_broadcast_config_logic(self, event: AstrMessageEvent):
+        """广播配置命令的核心逻辑"""
         command_content = event.message_str.replace("mc广播设置", "", 1).strip()
         if not command_content:
-            # 无参数时显示所有配置
             return self.plugin.broadcast_config_manager.get_current_config_display()
+        
         tokens = command_content.split(None, 1)
         if len(tokens) < 2:
             return "❌ 参数不足！\n用法：/mc广播设置 <adapter_id> <消息内容>"
+        
         adapter_id, msg_content = tokens[0], tokens[1].strip()
         if not adapter_id or not msg_content:
             return "❌ 参数错误！\n用法：/mc广播设置 <adapter_id> <消息内容>"
+        
         # 检查适配器是否存在
-        adapter = None
-        for a in self.plugin.adapter_router.get_all_adapters():
-            if a.adapter_id == adapter_id:
-                adapter = a
-                break
+        adapter = next((a for a in self.plugin.adapter_router.get_all_adapters() if a.adapter_id == adapter_id), None)
         if not adapter:
             return f"❌ 未找到适配器 {adapter_id}，请检查ID是否正确"
-        # 设置内容
+        
         success, message = self.plugin.broadcast_config_manager.set_broadcast_content(adapter_id, msg_content)
         if success:
             logger.info(f"适配器 {adapter_id} 整点广播内容已更新")
@@ -251,46 +230,38 @@ mc:
     
     async def handle_broadcast_toggle_command(self, event: AstrMessageEvent):
         """处理mc广播开关命令"""
-        if not event.is_admin():
-            return "⛔ 只有管理员才能使用此命令"
-        
-        _, message = self.plugin.broadcast_config_manager.toggle_broadcast()
-        return message
+        return await self._require_admin(lambda e: self.plugin.broadcast_config_manager.toggle_broadcast()[1])(event)
 
     async def handle_broadcast_clear_command(self, event: AstrMessageEvent):
         """处理mc广播清除命令"""
-        if not event.is_admin():
-            return "⛔ 只有管理员才能使用此命令"
-            
-        # 解析参数
+        return await self._require_admin(self._handle_broadcast_clear_logic)(event)
+    
+    async def _handle_broadcast_clear_logic(self, event: AstrMessageEvent):
+        """广播清除命令的核心逻辑"""
         command_content = event.message_str.replace("mc广播清除", "", 1).strip()
         adapter_id = command_content if command_content else None
-
         _, message = self.plugin.broadcast_config_manager.clear_custom_content(adapter_id)
         return message
 
     async def handle_broadcast_test_command(self, event: AstrMessageEvent):
         """处理mc广播测试命令"""
-        # 仅管理员可以使用此命令
-        if not event.is_admin():
-            return "⛔ 只有管理员才能使用此命令"
-        
-        # 解析参数
+        return await self._require_admin(self._handle_broadcast_test_logic)(event)
+    
+    async def _handle_broadcast_test_logic(self, event: AstrMessageEvent):
+        """广播测试命令的核心逻辑"""
         command_content = event.message_str.replace("mc广播测试", "", 1).strip()
         adapter_id = command_content if command_content else None
         
         logger.info(f"用户 {event.get_sender_id()} 触发了测试广播")
-
-        # 执行测试广播
         await self.plugin.broadcast_scheduler.execute_hourly_broadcast()
-        
         return "✅ 已触发测试广播"
 
     async def handle_custom_broadcast_command(self, event: AstrMessageEvent):
         """处理mc自定义广播命令"""
-        if not event.is_admin():
-            return "⛔ 只有管理员才能使用此命令"
-
+        return await self._require_admin(self._handle_custom_broadcast_logic)(event)
+    
+    async def _handle_custom_broadcast_logic(self, event: AstrMessageEvent):
+        """自定义广播命令的核心逻辑"""
         command_content = event.message_str.replace("mc自定义广播", "", 1).strip()
         
         # 解析参数
@@ -302,17 +273,13 @@ mc:
         if not text_content:
             return "❌ 请提供广播的文本内容"
 
-        # 获取所有适配器
         adapters = self.plugin.adapter_router.get_all_adapters()
         if not adapters:
             return "❌ 未找到任何Minecraft适配器"
         
         try:
             success = await self.plugin.broadcast_sender.send_custom_rich_broadcast(adapters, text_content, click_value, hover_text)
-            if success:
-                return "✅ 自定义广播已发送"
-            else:
-                return "❌ 发送自定义广播失败，请查看日志"
+            return "✅ 自定义广播已发送" if success else "❌ 发送自定义广播失败，请查看日志"
         except Exception as e:
             logger.error(f"发送自定义广播时出错: {str(e)}")
             return f"❌ 发送自定义广播时出错: {str(e)}" 

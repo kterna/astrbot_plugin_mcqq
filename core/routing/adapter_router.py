@@ -33,72 +33,61 @@ class AdapterRouter:
     def get_all_adapters(self) -> List[BaseMinecraftAdapter]:
         """获取所有已注册的适配器"""
         return list(self.adapters.values())
-        
-    async def route_chat_message(self, source_adapter_id: str, message: str, sender: str):
-        """转发聊天消息到所有其他适配器"""
-
-        logger.debug(f"路由聊天消息: 来源={source_adapter_id}, 发送者={sender}, 消息={message}")
-        logger.debug(f"当前注册的适配器: {list(self.adapters.keys())}")
-        
+    
+    async def _route_message(self, source_adapter_id: str, message_formatter, *args):
+        """统一的消息路由模板方法"""
         source_adapter = self.adapters.get(source_adapter_id)
         if not source_adapter:
             logger.warning(f"源适配器 {source_adapter_id} 未找到")
             return
-            
-        # 构造转发消息，包含源服务器名称
-        forward_message = f"[{source_adapter.server_name}] {sender}: {message}"
-        logger.debug(f"转发消息内容: {forward_message}")
+        
+        # 使用格式化函数生成消息
+        message = message_formatter(source_adapter.server_name, *args)
+        logger.debug(f"路由消息: {message}")
         
         # 向所有其他适配器发送消息
-        await self._broadcast_to_others(source_adapter_id, forward_message)
+        await self._broadcast_to_others(source_adapter_id, message)
+        
+    async def route_chat_message(self, source_adapter_id: str, message: str, sender: str):
+        """转发聊天消息到所有其他适配器"""
+        logger.debug(f"路由聊天消息: 来源={source_adapter_id}, 发送者={sender}, 消息={message}")
+        logger.debug(f"当前注册的适配器: {list(self.adapters.keys())}")
+        
+        await self._route_message(
+            source_adapter_id,
+            lambda server_name, msg, sndr: f"[{server_name}] {sndr}: {msg}",
+            message, sender
+        )
         
     async def route_player_join(self, source_adapter_id: str, player_name: str):
         """转发玩家加入消息到所有其他适配器"""
         logger.debug(f"路由玩家加入: 来源={source_adapter_id}, 玩家={player_name}")
         
-        source_adapter = self.adapters.get(source_adapter_id)
-        if not source_adapter:
-            logger.warning(f"源适配器 {source_adapter_id} 未找到")
-            return
-            
-        # 构造加入消息
-        join_message = f"[{source_adapter.server_name}] {player_name} 加入了游戏"
-        logger.debug(f"转发加入消息: {join_message}")
-        
-        # 向所有其他适配器发送消息
-        await self._broadcast_to_others(source_adapter_id, join_message)
+        await self._route_message(
+            source_adapter_id,
+            lambda server_name, player: f"[{server_name}] {player} 加入了游戏",
+            player_name
+        )
         
     async def route_player_quit(self, source_adapter_id: str, player_name: str):
         """转发玩家退出消息到所有其他适配器"""
         logger.debug(f"路由玩家退出: 来源={source_adapter_id}, 玩家={player_name}")
         
-        source_adapter = self.adapters.get(source_adapter_id)
-        if not source_adapter:
-            logger.warning(f"源适配器 {source_adapter_id} 未找到")
-            return
-            
-        # 构造退出消息
-        quit_message = f"[{source_adapter.server_name}] {player_name} 离开了游戏"
-        logger.debug(f"转发退出消息: {quit_message}")
-        
-        # 向所有其他适配器发送消息
-        await self._broadcast_to_others(source_adapter_id, quit_message)
+        await self._route_message(
+            source_adapter_id,
+            lambda server_name, player: f"[{server_name}] {player} 离开了游戏",
+            player_name
+        )
         
     async def route_player_death(self, source_adapter_id: str, death_message: str):
         """转发玩家死亡消息到所有其他适配器"""
         logger.debug(f"路由玩家死亡: 来源={source_adapter_id}, 消息={death_message}")
         
-        source_adapter = self.adapters.get(source_adapter_id)
-        if not source_adapter:
-            logger.warning(f"源适配器 {source_adapter_id} 未找到")
-            return
-            
-        # 构造死亡消息
-        forward_message = f"[{source_adapter.server_name}] {death_message}"
-        logger.debug(f"转发死亡消息: {forward_message}")
-        
-        # 向所有其他适配器发送消息
-        await self._broadcast_to_others(source_adapter_id, forward_message)
+        await self._route_message(
+            source_adapter_id,
+            lambda server_name, msg: f"[{server_name}] {msg}",
+            death_message
+        )
         
     async def _broadcast_to_others(self, source_adapter_id: str, message: str, sender: str = None):
         """向除源适配器外的所有适配器广播消息"""
@@ -124,7 +113,7 @@ class AdapterRouter:
                     logger.error(f"转发消息到适配器时出错: {result}")
                 else:
                     success_count += 1
-        
+
     async def broadcast_message(self, message: str, sender: str = None, exclude_adapter_id: str = None):
         """向所有适配器广播消息（通常用于管理员命令）"""
         tasks = []

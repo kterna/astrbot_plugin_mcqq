@@ -1,5 +1,5 @@
 import asyncio
-from typing import Optional
+from typing import Optional, Tuple
 import aiomcrcon
 from astrbot import logger
 
@@ -16,28 +16,31 @@ class RconManager:
         self.rcon_password: Optional[str] = None
         self.rcon_connected: bool = False
     
+    def _validate_config(self, adapter) -> Tuple[bool, str]:
+        """验证RCON配置的有效性"""
+        if not adapter:
+            return False, "等待Minecraft平台适配器可用..."
+        
+        self.rcon_enabled = adapter.config.get("rcon_enabled", False)
+        if not self.rcon_enabled:
+            return False, "RCON功能未在适配器配置中启用，跳过RCON初始化。"
+        
+        self.rcon_password = adapter.config.get("rcon_password", "")
+        if not self.rcon_password:
+            return False, "RCON密码未在适配器配置中配置，无法初始化RCON连接。"
+        
+        self.rcon_host = adapter.config.get("rcon_host", "localhost")
+        if not self.rcon_host:
+            return False, "RCON主机未在适配器配置中配置，无法初始化RCON连接。"
+        
+        self.rcon_port = adapter.config.get("rcon_port", 25575)
+        return True, ""
+    
     async def initialize(self, adapter):
         """从适配器配置初始化RCON客户端并尝试连接"""
-        if not adapter:
-            logger.warning("RCON初始化推迟：等待Minecraft平台适配器可用...")
-            return
-
-        # 从适配器的配置中获取RCON设置
-        self.rcon_enabled = adapter.config.get("rcon_enabled", False)
-        self.rcon_host = adapter.config.get("rcon_host", "localhost")
-        self.rcon_port = adapter.config.get("rcon_port", 25575)
-        self.rcon_password = adapter.config.get("rcon_password", "")
-
-        if not self.rcon_enabled:
-            logger.info("RCON功能未在适配器配置中启用，跳过RCON初始化。")
-            return
-
-        if not self.rcon_password:
-            logger.error("RCON密码未在适配器配置中配置，无法初始化RCON连接。")
-            return
-        
-        if not self.rcon_host:
-            logger.error("RCON主机未在适配器配置中配置，无法初始化RCON连接。")
+        is_valid, error_msg = self._validate_config(adapter)
+        if not is_valid:
+            logger.warning(f"RCON初始化推迟：{error_msg}")
             return
 
         await self._connect()
@@ -74,6 +77,18 @@ class RconManager:
                 self.rcon_connected = False
                 self.rcon_client = None
 
+    def _check_rcon_availability(self, sender_id: str) -> Tuple[bool, str]:
+        """检查RCON是否可用"""
+        if not self.rcon_enabled:
+            logger.info(f"RCON: 用户 {sender_id} 尝试执行rcon指令，但RCON功能未启用。")
+            return False, "❌ RCON 功能当前未启用。请联系管理员在插件配置中启用。"
+        
+        if not self.rcon_client or not self.rcon_connected:
+            logger.warning(f"RCON: 用户 {sender_id} 尝试执行指令但RCON未连接。")
+            return False, "❌ RCON未连接到Minecraft服务器。正在尝试连接..."
+        
+        return True, ""
+
     async def execute_command(self, command: str, sender_id: str, adapter=None) -> tuple[bool, str]:
         """
         执行RCON命令
@@ -86,31 +101,24 @@ class RconManager:
         Returns:
             tuple[bool, str]: (成功标志, 响应消息)
         """
-        # 检查 RCON 是否启用
-        if not self.rcon_enabled:
-            logger.info(f"RCON: 用户 {sender_id} 尝试执行rcon指令，但RCON功能未启用。")
-            return False, "❌ RCON 功能当前未启用。请联系管理员在插件配置中启用。"
-        
         # 重新连接命令
         if command == "重启":
-            await self.initialize(adapter)  # 传递适配器进行重新初始化
+            await self.initialize(adapter)
             return True, "🔄 正在尝试重新连接RCON服务器..."
         
         if not command:
             return False, "❓ 请提供要执行的RCON指令，例如：/rcon whitelist add 玩家名"
         
-        if not self.rcon_client or not self.rcon_connected:
-            logger.warning(f"RCON: 用户 {sender_id} 尝试执行指令 '{command}' 但RCON未连接。")
-            return False, "❌ RCON未连接到Minecraft服务器。正在尝试连接..."
+        # 检查RCON可用性
+        is_available, error_msg = self._check_rcon_availability(sender_id)
+        if not is_available:
+            return False, error_msg
         
         logger.info(f"RCON: 管理员 {sender_id} 正在执行指令: '{command}'")
         
         try:
             response = await self.rcon_client.send_cmd(command)
-            if response:
-                actual_response = response[0]
-            else:
-                actual_response = "无响应消息"
+            actual_response = response[0] if response else "无响应消息"
             
             logger.info(f"RCON: 指令 '{command}' 响应: {actual_response}")
             return True, actual_response
