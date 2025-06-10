@@ -1,66 +1,83 @@
-class Vanilla():
-    def __init__(self):
-        self.server_type="vanilla"
-        self.chat="MinecraftPlayerChatEvent"
-        self.join="MinecraftPlayerJoinEvent"
-        self.quit="MinecraftPlayerQuitEvent"
+from typing import Dict
 
-        self.player={
+
+class Vanilla:
+    """Vanilla Minecraft 服务器事件配置"""
+    
+    def __init__(self) -> None:
+        self.server_type: str = "vanilla"
+        self.chat: str = "MinecraftPlayerChatEvent"
+        self.join: str = "MinecraftPlayerJoinEvent"
+        self.quit: str = "MinecraftPlayerQuitEvent"
+
+        self.player: Dict[str, str] = {
             "nickname": "nickname",
         }
 
-class Spigot():
-    def __init__(self):
-        self.server_type="spigot"
-        self.chat="AsyncPlayerChatEvent"
-        self.join="PlayerJoinEvent"
-        self.quit="PlayerQuitEvent"
-        self.death="PlayerDeathEvent"
-        self.player_command="PlayerCommandPreprocessEvent"
 
-        self.player={
+class Spigot:
+    """Spigot/Paper Minecraft 服务器事件配置"""
+    
+    def __init__(self) -> None:
+        self.server_type: str = "spigot"
+        self.chat: str = "AsyncPlayerChatEvent"
+        self.join: str = "PlayerJoinEvent"
+        self.quit: str = "PlayerQuitEvent"
+        self.death: str = "PlayerDeathEvent"
+        self.player_command: str = "PlayerCommandPreprocessEvent"
+
+        self.player: Dict[str, str] = {
             "nickname": "nickname",
         }
 
-class Fabric():
-    def __init__(self):
-        self.server_type="fabric"
-        self.chat="ServerMessageEvent"
-        self.join="ServerPlayConnectionJoinEvent"
-        self.quit="ServerPlayConnectionDisconnectEvent"
-        self.death="ServerLivingEntityAfterDeathEvent"
-        self.player_command="ServerCommandMessageEvent"
 
-        self.player={
+class Fabric:
+    """Fabric Minecraft 服务器事件配置"""
+    
+    def __init__(self) -> None:
+        self.server_type: str = "fabric"
+        self.chat: str = "ServerMessageEvent"
+        self.join: str = "ServerPlayConnectionJoinEvent"
+        self.quit: str = "ServerPlayConnectionDisconnectEvent"
+        self.death: str = "ServerLivingEntityAfterDeathEvent"
+        self.player_command: str = "ServerCommandMessageEvent"
+
+        self.player: Dict[str, str] = {
             "nickname": "nickname",
             "block_x": "block_x",
             "block_y": "block_y",
             "block_z": "block_z",
         }
 
-class Forge():    
-    def __init__(self):
-        self.server_type="forge"
-        self.chat="ServerChatEvent"
-        self.join="PlayerLoggedInEvent"
-        self.quit="PlayerLoggedOutEvent"
 
-        self.player={
+class Forge:
+    """Forge Minecraft 服务器事件配置"""
+    
+    def __init__(self) -> None:
+        self.server_type: str = "forge"
+        self.chat: str = "ServerChatEvent"
+        self.join: str = "PlayerLoggedInEvent"
+        self.quit: str = "PlayerLoggedOutEvent"
+
+        self.player: Dict[str, str] = {
             "nickname": "nickname",
             "block_x": "block_x",
             "block_y": "block_y",
             "block_z": "block_z",
         }
     
-class Neoforge():
-    def __init__(self):
-        self.server_type="neoforge"
-        self.chat="NeoServerChatEvent"
-        self.join="NeoPlayerLoggedInEvent"
-        self.quit="NeoPlayerLoggedOutEvent"
-        self.player_command="NeoCommandEventb"
 
-        self.player={
+class Neoforge:
+    """Neoforge Minecraft 服务器事件配置"""
+    
+    def __init__(self) -> None:
+        self.server_type: str = "neoforge"
+        self.chat: str = "NeoServerChatEvent"
+        self.join: str = "NeoPlayerLoggedInEvent"
+        self.quit: str = "NeoPlayerLoggedOutEvent"
+        self.player_command: str = "NeoCommandEvent"
+
+        self.player: Dict[str, str] = {
             "nickname": "nickname",
             "block_x": "block_x",
             "block_y": "block_y",

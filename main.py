@@ -1,3 +1,6 @@
+import asyncio
+from typing import Optional, List
+
 from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
 from astrbot.api.star import Context, Star, register
 from astrbot.api.message_components import Plain
@@ -5,8 +8,8 @@ from astrbot import logger
 from astrbot.core.platform.manager import PlatformManager
 from astrbot.core.star.star_tools import StarTools
 
-import asyncio
-from typing import Optional, List
+# 常量定义
+PLUGIN_DATA_DIR = "mcqq"
 
 # 导入平台适配器
 from .core.adapters.minecraft_adapter import MinecraftPlatformAdapter
@@ -30,7 +33,7 @@ class MCQQPlugin(Star):
         self.minecraft_adapter = None
 
         # 获取数据目录
-        self.data_dir = StarTools.get_data_dir("mcqq")
+        self.data_dir = StarTools.get_data_dir(PLUGIN_DATA_DIR)
 
         # 初始化管理器
         self.rcon_manager = RconManager()

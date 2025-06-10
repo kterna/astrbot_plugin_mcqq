@@ -45,6 +45,16 @@ class RconManager:
 
         await self._connect()
     
+    async def reconnect(self, adapter) -> bool:
+        """重新连接RCON服务器"""
+        try:
+            await self.close()
+            await self.initialize(adapter)
+            return self.rcon_connected
+        except Exception as e:
+            logger.error(f"RCON重连失败: {e}")
+            return False
+    
     async def _connect(self):
         """建立RCON连接"""
         self.rcon_client = aiomcrcon.Client(self.rcon_host, self.rcon_port, self.rcon_password)
@@ -89,7 +99,23 @@ class RconManager:
         
         return True, ""
 
-    async def execute_command(self, command: str, sender_id: str, adapter=None) -> tuple[bool, str]:
+    async def _handle_command_execution(self, command: str) -> str:
+        """处理命令执行逻辑"""
+        try:
+            response = await self.rcon_client.send_cmd(command)
+            actual_response = response[0] if response else "无响应消息"
+            logger.info(f"RCON: 指令 '{command}' 响应: {actual_response}")
+            return actual_response
+            
+        except aiomcrcon.ClientNotConnectedError:
+            logger.error("RCON: 在发送指令时发现客户端未连接。")
+            self.rcon_connected = False
+            raise
+        except Exception as e:
+            logger.error(f"RCON: 执行指令 '{command}' 时发生错误: {e}")
+            raise
+
+    async def execute_command(self, command: str, sender_id: str, adapter=None) -> Tuple[bool, str]:
         """
         执行RCON命令
         
@@ -99,12 +125,12 @@ class RconManager:
             adapter: 适配器实例（重启命令需要）
             
         Returns:
-            tuple[bool, str]: (成功标志, 响应消息)
+            Tuple[bool, str]: (成功标志, 响应消息)
         """
         # 重新连接命令
         if command == "重启":
-            await self.initialize(adapter)
-            return True, "🔄 正在尝试重新连接RCON服务器..."
+            success = await self.reconnect(adapter)
+            return success, "🔄 正在尝试重新连接RCON服务器..."
         
         if not command:
             return False, "❓ 请提供要执行的RCON指令，例如：/rcon whitelist add 玩家名"
@@ -117,18 +143,11 @@ class RconManager:
         logger.info(f"RCON: 管理员 {sender_id} 正在执行指令: '{command}'")
         
         try:
-            response = await self.rcon_client.send_cmd(command)
-            actual_response = response[0] if response else "无响应消息"
-            
-            logger.info(f"RCON: 指令 '{command}' 响应: {actual_response}")
-            return True, actual_response
-            
+            response = await self._handle_command_execution(command)
+            return True, response
         except aiomcrcon.ClientNotConnectedError:
-            logger.error("RCON: 在发送指令时发现客户端未连接。")
-            self.rcon_connected = False
             return False, "❌ RCON客户端未连接。请重试或检查连接。"
         except Exception as e:
-            logger.error(f"RCON: 执行指令 '{command}' 时发生错误: {e}")
             return False, f"❌ 执行RCON指令时发生错误: {e}"
     
     def is_enabled(self) -> bool:

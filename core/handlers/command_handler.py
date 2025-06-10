@@ -5,26 +5,37 @@ from astrbot.api.event import AstrMessageEvent
 from astrbot import logger
 
 
+class Messages:
+    """命令响应消息常量"""
+    ADMIN_REQUIRED = "⛔ 只有管理员才能使用此命令"
+    GROUP_REQUIRED = "❌ 此命令只能在群聊中使用"
+    ADAPTER_NOT_FOUND = "❌ 未找到Minecraft平台适配器，请确保适配器已正确注册并启用"
+    BIND_SUCCESS = "✅ 成功将本群与Minecraft服务器 {} 绑定"
+    BIND_ALREADY = "ℹ️ 此群已经与Minecraft服务器 {} 绑定"
+    UNBIND_SUCCESS = "✅ 成功解除本群与Minecraft服务器 {} 的绑定"
+    UNBIND_NOT_BOUND = "ℹ️ 此群未与Minecraft服务器 {} 绑定"
+
+
 class CommandHandler:
     """命令处理器类，用于分离命令处理逻辑"""
     
     def __init__(self, plugin_instance):
         self.plugin = plugin_instance
     
-    def _require_admin(self, func):
+    def _decorator_require_admin(self, func):
         """管理员权限检查装饰器"""
         async def wrapper(event: AstrMessageEvent):
             if not event.is_admin():
-                return "⛔ 只有管理员才能使用此命令"
+                return Messages.ADMIN_REQUIRED
             return await func(event)
         return wrapper
     
-    def _require_group(self, func):
+    def _decorator_require_group(self, func):
         """群聊环境检查装饰器"""
         async def wrapper(event: AstrMessageEvent):
             group_id = event.get_group_id()
             if not group_id:
-                return "❌ 此命令只能在群聊中使用"
+                return Messages.GROUP_REQUIRED
             return await func(event)
         return wrapper
     
@@ -38,50 +49,49 @@ class CommandHandler:
         
         adapter = await self.plugin.get_minecraft_adapter()
         if not adapter:
-            return None, "❌ 未找到Minecraft平台适配器，请确保适配器已正确注册并启用"
+            return None, Messages.ADAPTER_NOT_FOUND
         return adapter, None
 
     async def handle_bind_command(self, event: AstrMessageEvent):
         """处理mcbind命令，支持多服务器参数"""
-        return await self._require_admin(self._require_group(self._handle_bind_logic))(event)
+        return await self._decorator_require_admin(self._decorator_require_group(self._handle_bind_logic))(event)
+    
+    async def handle_unbind_command(self, event: AstrMessageEvent):
+        """处理mcunbind命令，支持多服务器参数"""
+        return await self._decorator_require_admin(self._decorator_require_group(self._handle_unbind_logic))(event)
+    
+    async def _handle_binding_command(self, event: AstrMessageEvent, action: str):
+        """绑定/解绑命令的公共逻辑"""
+        group_id = event.get_group_id()
+        tokens = event.message_str.strip().split()
+        server_name = tokens[1] if len(tokens) > 1 else None
+
+        adapter, error = await self._get_target_adapter(server_name)
+        if error:
+            return error
+
+        if action == "bind":
+            success = await adapter.bind_group(group_id)
+            if success:
+                logger.info(f"群聊 {group_id} 与服务器 {adapter.adapter_id} 绑定")
+                return Messages.BIND_SUCCESS.format(adapter.adapter_id)
+            else:
+                return Messages.BIND_ALREADY.format(adapter.adapter_id)
+        elif action == "unbind":
+            success = await adapter.unbind_group(group_id)
+            if success:
+                logger.info(f"解除群聊 {group_id} 与服务器 {adapter.server_name} 的绑定")
+                return Messages.UNBIND_SUCCESS.format(adapter.server_name)
+            else:
+                return Messages.UNBIND_NOT_BOUND.format(adapter.server_name)
     
     async def _handle_bind_logic(self, event: AstrMessageEvent):
         """绑定命令的核心逻辑"""
-        group_id = event.get_group_id()
-        tokens = event.message_str.strip().split()
-        server_name = tokens[1] if len(tokens) > 1 else None
-
-        adapter, error = await self._get_target_adapter(server_name)
-        if error:
-            return error
-
-        success = await adapter.bind_group(group_id)
-        if success:
-            logger.info(f"群聊 {group_id} 与服务器 {adapter.adapter_id} 绑定")
-            return f"✅ 成功将本群与Minecraft服务器 {adapter.adapter_id} 绑定"
-        else:
-            return f"ℹ️ 此群已经与Minecraft服务器 {adapter.adapter_id} 绑定"
-
-    async def handle_unbind_command(self, event: AstrMessageEvent):
-        """处理mcunbind命令，支持多服务器参数"""
-        return await self._require_admin(self._require_group(self._handle_unbind_logic))(event)
+        return await self._handle_binding_command(event, "bind")
     
     async def _handle_unbind_logic(self, event: AstrMessageEvent):
         """解绑命令的核心逻辑"""
-        group_id = event.get_group_id()
-        tokens = event.message_str.strip().split()
-        server_name = tokens[1] if len(tokens) > 1 else None
-
-        adapter, error = await self._get_target_adapter(server_name)
-        if error:
-            return error
-
-        success = await adapter.unbind_group(group_id)
-        if success:
-            logger.info(f"解除群聊 {group_id} 与服务器 {adapter.server_name} 的绑定")
-            return f"✅ 成功解除本群与Minecraft服务器 {adapter.server_name} 的绑定"
-        else:
-            return f"ℹ️ 此群未与Minecraft服务器 {adapter.server_name} 绑定"
+        return await self._handle_binding_command(event, "unbind")
     
     async def handle_status_command(self, event: AstrMessageEvent):
         """处理mcstatus命令"""
@@ -184,7 +194,7 @@ mc:
     
     async def handle_rcon_command(self, event: AstrMessageEvent):
         """处理rcon命令"""
-        return await self._require_admin(self._handle_rcon_logic)(event)
+        return await self._decorator_require_admin(self._handle_rcon_logic)(event)
     
     async def _handle_rcon_logic(self, event: AstrMessageEvent):
         """RCON命令的核心逻辑"""
@@ -202,7 +212,7 @@ mc:
     
     async def handle_broadcast_config_command(self, event: AstrMessageEvent):
         """处理mc广播设置命令"""
-        return await self._require_admin(self._handle_broadcast_config_logic)(event)
+        return await self._decorator_require_admin(self._handle_broadcast_config_logic)(event)
     
     async def _handle_broadcast_config_logic(self, event: AstrMessageEvent):
         """广播配置命令的核心逻辑"""
@@ -230,11 +240,11 @@ mc:
     
     async def handle_broadcast_toggle_command(self, event: AstrMessageEvent):
         """处理mc广播开关命令"""
-        return await self._require_admin(lambda e: self.plugin.broadcast_config_manager.toggle_broadcast()[1])(event)
+        return await self._decorator_require_admin(lambda e: self.plugin.broadcast_config_manager.toggle_broadcast()[1])(event)
 
     async def handle_broadcast_clear_command(self, event: AstrMessageEvent):
         """处理mc广播清除命令"""
-        return await self._require_admin(self._handle_broadcast_clear_logic)(event)
+        return await self._decorator_require_admin(self._handle_broadcast_clear_logic)(event)
     
     async def _handle_broadcast_clear_logic(self, event: AstrMessageEvent):
         """广播清除命令的核心逻辑"""
@@ -245,7 +255,7 @@ mc:
 
     async def handle_broadcast_test_command(self, event: AstrMessageEvent):
         """处理mc广播测试命令"""
-        return await self._require_admin(self._handle_broadcast_test_logic)(event)
+        return await self._decorator_require_admin(self._handle_broadcast_test_logic)(event)
     
     async def _handle_broadcast_test_logic(self, event: AstrMessageEvent):
         """广播测试命令的核心逻辑"""
@@ -258,7 +268,7 @@ mc:
 
     async def handle_custom_broadcast_command(self, event: AstrMessageEvent):
         """处理mc自定义广播命令"""
-        return await self._require_admin(self._handle_custom_broadcast_logic)(event)
+        return await self._decorator_require_admin(self._handle_custom_broadcast_logic)(event)
     
     async def _handle_custom_broadcast_logic(self, event: AstrMessageEvent):
         """自定义广播命令的核心逻辑"""
