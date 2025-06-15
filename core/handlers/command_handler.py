@@ -3,6 +3,9 @@ import asyncio
 from typing import Optional
 from astrbot.api.event import AstrMessageEvent
 from astrbot import logger
+import base64, uuid
+from astrbot.core.star.star_tools import StarTools
+import os
 
 
 class Messages:
@@ -103,7 +106,7 @@ class CommandHandler:
             return "❌ 未找到任何Minecraft平台适配器，请确保适配器已正确注册并启用"
 
         # 构建状态消息
-        status_msg = "�� Minecraft适配器状态:\n"
+        status_msg = "Minecraft适配器状态:\n"
         
         connected_count = 0
         bound_count = 0
@@ -143,25 +146,47 @@ class CommandHandler:
         return status_msg
     
     async def handle_say_command(self, event: AstrMessageEvent):
-        """处理mcsay命令"""
+        """处理mcsay命令，支持图片"""
         message = event.message_str.replace("mcsay", "", 1).strip()
+        ci_image_texts = []
+        for item in event.get_messages():
+            if item.__class__.__name__ == "Image":
+                file_field = getattr(item, 'file', '')
+                if isinstance(file_field, str) and file_field.startswith('base64://'):
+                    base64_data = file_field[len('base64://'):]
+                    image_bytes = base64.b64decode(base64_data)
+                    temp_dir = StarTools.get_data_dir('mcqq//temp')
+                    temp_dir.mkdir(parents=True, exist_ok=True)
+                    file_path = temp_dir / f"{uuid.uuid4()}.jpg"
+                    with open(file_path, 'wb') as f:
+                        f.write(image_bytes)
+                    ci_image_texts.append(f"[[CICode,url=file:///{file_path},name=Image]]")
+                elif isinstance(file_field, str) and file_field.startswith('file:///'):
+                    ci_image_texts.append(f"[[CICode,url={file_field},name=Image]]")
+                elif hasattr(item, 'url') and item.url:
+                    ci_image_texts.append(f"[[CICode,url={item.url},name=Image]]")
+        if ci_image_texts:
+            message = message.strip() + ' ' + ' '.join(ci_image_texts)
         if not message:
             return "❓ 请提供要发送的消息内容，例如：/mcsay 大家好"
 
         sender_name = event.get_sender_name()
         adapters = self.plugin.adapter_router.get_all_adapters()
-        
         if not adapters:
             return "❌ 未找到任何Minecraft平台适配器，请确保适配器已正确注册并启用"
-
-        # 检查连接状态
         connected_adapters = [adapter for adapter in adapters if await adapter.is_connected()]
         if not connected_adapters:
             return "❌ 所有Minecraft适配器都未连接，请检查连接状态"
-
-        # 向所有已连接的适配器广播消息
         try:
             await self.plugin.adapter_router.broadcast_message(message, sender_name)
+            # 发送完毕后删除本次命令中生成的临时图片
+            for item in ci_image_texts:
+                if "url=file:///" in item:
+                    file_path = item.split("url=file:///")[1].split(",")[0]
+                    try:
+                        os.remove(file_path)
+                    except Exception as e:
+                        logger.warning(f"删除图片失败: {file_path} {e}")
             return ""
         except Exception as e:
             logger.error(f"发送消息到Minecraft服务器时出错: {str(e)}")
