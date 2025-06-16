@@ -1,6 +1,7 @@
 # MCQQ 插件
 
 一个通过鹊桥模组实现Minecraft平台适配器，以及mcqq互联的插件。
+
 [![moe_counter](https://count.getloli.com/get/@astrbot_plugin_mcqq?theme=moebooru)](https://github.com/kterna/astrbot_plugin_mcqq)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/kterna/astrbot_plugin_mcqq)
 ## 功能
@@ -28,12 +29,12 @@
 
 ## 安装要求
 
-- Minecraft 服务器安装[鹊桥模组queqiao](https://www.curseforge.com/minecraft/mc-mods/queqiao)
+- Minecraft 服务器安装[鹊桥模组queqiao](https://www.curseforge.com/minecraft/mc-mods/queqiao)或安装[鹊桥的mcdr移植](https://github.com/kterna/queqiao_mcdr)
 
 ### 使用说明
 
 在平台适配器中新增minecraft平台适配器，并配置相关配置连接到minecraft服务器
-在服务器中可使用"#astr"命令进行astrbot自身的指令或llm
+在服务器中可使用"#"命令进行astrbot自身的指令或llm对话
 ![llm](image/llm.png)
 ![help](image/help.png)
 
@@ -103,6 +104,10 @@ mc命令:
   }
 }
 ```
+
+## 鹊桥mcdr配置
+
+将文件夹放到mcdr的plugins下后配置其中config.py内的config
 
 ## 整点广播
 
