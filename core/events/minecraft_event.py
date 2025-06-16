@@ -3,6 +3,8 @@ from astrbot.api.platform import AstrBotMessage, PlatformMetadata
 from astrbot.api.message_components import Plain, Image
 from astrbot import logger
 from typing import Callable, Optional, Awaitable
+from astrbot.core.star.star_tools import StarTools
+import os, base64, uuid
 
 class MinecraftMessageEvent(AstrMessageEvent):
     def __init__(
@@ -22,9 +24,30 @@ class MinecraftMessageEvent(AstrMessageEvent):
         try:
             # 提取消息文本
             message_text = ""
+            ci_image_texts = []
             for item in message.chain:
                 if isinstance(item, Plain):
                     message_text += item.text
+                elif item.__class__.__name__ == "Image":
+                    # 检查 file 字段是否为 base64 编码
+                    file_field = getattr(item, 'file', '')
+                    if isinstance(file_field, str) and file_field.startswith('base64://'):
+                        base64_data = file_field[len('base64://'):]
+                        image_bytes = base64.b64decode(base64_data)
+                        temp_dir = StarTools.get_data_dir('mcqq//temp')
+                        temp_dir.mkdir(parents=True, exist_ok=True)
+                        file_path = temp_dir / f"{uuid.uuid4()}.jpg"
+                        with open(file_path, 'wb') as f:
+                            f.write(image_bytes)
+                        ci_image_texts.append(f"[[CICode,url=file:///{file_path},name=Image]]")
+                    elif isinstance(file_field, str) and file_field.startswith('file:///'):
+                        ci_image_texts.append(f"[[CICode,url={file_field},name=Image]]")
+                    elif hasattr(item, 'url') and item.url:
+                        ci_image_texts.append(f"[[CICode,url={item.url},name=Image]]")
+
+            # 将图片消息以指定格式追加到文本末尾
+            if ci_image_texts:
+                message_text = message_text.strip() + ' ' + ' '.join(ci_image_texts)
 
             # 获取发送者信息
             sender_name = self.get_sender_name()

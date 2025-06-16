@@ -6,7 +6,7 @@ from astrbot.api.message_components import Plain
 from astrbot import logger
 
 from ..events.minecraft_event import MinecraftMessageEvent
-from ..config.server_types import Vanilla, Spigot, Fabric, Forge, Neoforge
+from ..config.server_types import Vanilla, Spigot, Fabric, Forge, Neoforge, McdrServer
 from ..utils.bot_filter import BotFilter
 from ..commands.command_factory import CommandFactory
 
@@ -43,7 +43,8 @@ class MessageHandler:
             "spigot": Spigot(),
             "fabric": Fabric(),
             "forge": Forge(),
-            "neoforge": Neoforge()
+            "neoforge": Neoforge(),
+            "mcdr": McdrServer()
         }
         return server_classes.get(server_type, Vanilla())
     

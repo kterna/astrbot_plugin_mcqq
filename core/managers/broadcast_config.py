@@ -1,4 +1,5 @@
 import json
+import datetime
 from typing import Optional, List, Dict, Any
 from pathlib import Path
 from astrbot import logger
@@ -48,21 +49,31 @@ class BroadcastConfigManager:
 
         self.load_config()
 
+    def _safe_file_operation(self, operation_func, operation_name: str, default_value=None):
+        """安全的文件操作包装器"""
+        try:
+            return operation_func()
+        except Exception as e:
+            logger.error(f"{operation_name}失败: {e}")
+            return default_value
+
     def load_config(self):
         """从文件加载广播配置"""
-        try:
+        def _load():
             if self.config_file.exists():
                 with open(self.config_file, 'r', encoding='utf-8') as f:
                     config = json.load(f)
                 self.hourly_broadcast_enabled = config.get("hourly_broadcast_enabled", True)
                 self.custom_broadcast_content = config.get("custom_broadcast_content")
                 logger.info("已加载保存的广播配置")
-        except Exception as e:
-            logger.error(f"加载广播配置失败: {e}")
+                return True
+            return False
+        
+        self._safe_file_operation(_load, "加载广播配置", False)
 
     def save_config(self):
         """保存广播配置到文件"""
-        try:
+        def _save():
             config = {
                 "hourly_broadcast_enabled": self.hourly_broadcast_enabled,
                 "custom_broadcast_content": self.custom_broadcast_content
@@ -70,8 +81,9 @@ class BroadcastConfigManager:
             with open(self.config_file, 'w', encoding='utf-8') as f:
                 json.dump(config, f, ensure_ascii=False, indent=2)
             logger.debug("广播配置已保存")
-        except Exception as e:
-            logger.error(f"保存广播配置失败: {e}")
+            return True
+        
+        self._safe_file_operation(_save, "保存广播配置")
 
     def set_broadcast_content(self, adapter_id: str, config_string: str) -> tuple[bool, str]:
         """解析并设置指定适配器的广播内容"""
@@ -114,6 +126,9 @@ class BroadcastConfigManager:
         if adapter_id:
             content = self.get_broadcast_content(adapter_id)
             title = f"适配器 {adapter_id} 的自定义广播内容" if self.custom_broadcast_content and adapter_id in self.custom_broadcast_content else f"适配器 {adapter_id} 的默认整点广播内容"
+            lines = [f"📋 {title}:"]
+            lines.append(self._format_content_to_display(content))
+            return "\n".join(lines)
         else:
             lines = ["📋 所有适配器自定义广播内容:"]
             if self.custom_broadcast_content:
@@ -121,75 +136,70 @@ class BroadcastConfigManager:
                     lines.append(f"- {aid}:")
                     lines.append(self._format_content_to_display(content))
             return "\n".join(lines)
-        
-        lines = [f"📋 {title}:"]
-        lines.append(self._format_content_to_display(content))
-        return "\n".join(lines)
 
     def _format_content_to_display(self, content: list) -> str:
         """Helper to format a list of components for display."""
         lines = []
         for i, component in enumerate(content, 1):
-            line = f"  {i}. 文本: {component['text']}"
+            line_parts = [f"  {i}. 文本: {component['text']}"]
+            
             if component.get('color', 'white') != 'white':
-                line += f" | 颜色: {component['color']}"
+                line_parts.append(f"颜色: {component['color']}")
             if component.get('bold'):
-                line += f" | 粗体: 是"
-            if "click_event" in component:
+                line_parts.append("粗体: 是")
+            
+            if "click_event" in component and component["click_event"].get("value"):
                 click_event = component["click_event"]
-                if click_event.get("value"):
-                    line += f" | 点击: {click_event['value']}"
-                    line += f" | 点击类型: {click_event.get('action', 'SUGGEST_COMMAND')}"
+                line_parts.append(f"点击: {click_event['value']}")
+                line_parts.append(f"点击类型: {click_event.get('action', 'SUGGEST_COMMAND')}")
+            
             if "hover_event" in component:
                 hover_event = component["hover_event"]
-                hover_text = ''
                 if hover_event.get("contents") and len(hover_event["contents"]) > 0:
                     hover_text = hover_event["contents"][0].get("text", "")
-                if hover_text:
-                    line += f" | 悬浮: {hover_text}"
-            lines.append(line)
+                    if hover_text:
+                        line_parts.append(f"悬浮: {hover_text}")
+            
+            lines.append(" | ".join(line_parts))
         return "\n".join(lines)
-
 
     def _parse_broadcast_config(self, config_string: str) -> List[Dict[str, Any]]:
         """解析广播配置字符串"""
-        if "|" in config_string:
-            components = []
-            parts = config_string.split("|")
-            
-            for part in parts:
-                part = part.strip()
-                if not part:
-                    continue
-                
-                fields = [f.strip() for f in part.split(",")]
-                num_fields = len(fields)
-                
-                if num_fields < 1:
-                    continue
-                
-                text = fields[0]
-                color = fields[1] if num_fields > 1 and fields[1] else "white"
-                bold = fields[2].lower() == 'true' if num_fields > 2 and fields[2] else False
-                click_value = fields[3] if num_fields > 3 and fields[3] else None
-                hover_text = fields[4] if num_fields > 4 and fields[4] else None
-
-                component = {
-                    "text": text.replace("{{time}}", datetime.datetime.now().strftime("%H:%M")),
-                    "color": color,
-                    "bold": bold
-                }
-
-                if click_value:
-                    component["click_event"] = {"action": "SUGGEST_COMMAND", "value": click_value}
-                
-                if hover_text:
-                    component["hover_event"] = {"action": "SHOW_TEXT", "contents": [{"text": hover_text}]}
-                
-                components.append(component)
-            return components
-        else:
+        if "|" not in config_string:
             return [{"text": config_string, "color": "white", "bold": False}]
+        
+        components = []
+        for part in config_string.split("|"):
+            part = part.strip()
+            if not part:
+                continue
+            
+            fields = [f.strip() for f in part.split(",")]
+            if len(fields) < 1:
+                continue
+            
+            text, color, bold, click_value, hover_text = (
+                fields[0],
+                fields[1] if len(fields) > 1 and fields[1] else "white",
+                fields[2].lower() == 'true' if len(fields) > 2 and fields[2] else False,
+                fields[3] if len(fields) > 3 and fields[3] else None,
+                fields[4] if len(fields) > 4 and fields[4] else None
+            )
+
+            component = {
+                "text": text.replace("{{time}}", datetime.datetime.now().strftime("%H:%M")),
+                "color": color,
+                "bold": bold
+            }
+
+            if click_value:
+                component["click_event"] = {"action": "SUGGEST_COMMAND", "value": click_value}
+            
+            if hover_text:
+                component["hover_event"] = {"action": "SHOW_TEXT", "contents": [{"text": hover_text}]}
+            
+            components.append(component)
+        return components
 
     def _format_broadcast_config_display(self, adapter_id: str) -> str:
         """格式化广播配置以便显示"""
@@ -197,7 +207,7 @@ class BroadcastConfigManager:
         return self._format_content_to_display(content)
 
     def is_enabled(self) -> bool:
-        """检查整点广播是否已启用"""
+        """检查广播是否启用"""
         return self.hourly_broadcast_enabled
 
     def get_broadcast_content(self, adapter_id: str) -> list:
