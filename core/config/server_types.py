@@ -83,3 +83,23 @@ class Neoforge:
             "block_y": "block_y",
             "block_z": "block_z",
         }
+
+
+class McdrServer:
+    """MCDR (MCDReforged) 服务器事件配置"""
+    
+    def __init__(self) -> None:
+        self.server_type: str = "mcdr"
+        self.chat: str = "MCDRChat"
+        self.join: str = "MCDRJoin"
+        self.quit: str = "MCDRQuit"
+        self.death: str = "MCDRDeath"
+        self.player_command: str = "MCDRPlayer_command"
+
+        self.player: Dict[str, str] = {
+            "nickname": "nickname",
+            "uuid": "uuid",
+            "is_op": "is_op",
+            "dimension": "dimension",
+            "coordinate": "coordinate",
+        }
