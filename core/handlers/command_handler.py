@@ -8,6 +8,11 @@ from astrbot.core.star.star_tools import StarTools
 import os
 
 
+class AdapterNotFoundError(Exception):
+    """当找不到适配器时引发的异常"""
+    pass
+
+
 class Messages:
     """命令响应消息常量"""
     ADMIN_REQUIRED = "⛔ 只有管理员才能使用此命令"
@@ -47,13 +52,13 @@ class CommandHandler:
         if server_name:
             for adapter in self.plugin.adapter_router.get_all_adapters():
                 if adapter.server_name == server_name or adapter.adapter_id == server_name:
-                    return adapter, None
-            return None, f"❌ 未找到名为 {server_name} 的Minecraft适配器"
+                    return adapter
+            raise AdapterNotFoundError(f"❌ 未找到名为 {server_name} 的Minecraft适配器")
         
         adapter = await self.plugin.get_minecraft_adapter()
         if not adapter:
-            return None, Messages.ADAPTER_NOT_FOUND
-        return adapter, None
+            raise AdapterNotFoundError(Messages.ADAPTER_NOT_FOUND)
+        return adapter
 
     async def handle_bind_command(self, event: AstrMessageEvent):
         """处理mcbind命令，支持多服务器参数"""
@@ -69,9 +74,10 @@ class CommandHandler:
         tokens = event.message_str.strip().split()
         server_name = tokens[1] if len(tokens) > 1 else None
 
-        adapter, error = await self._get_target_adapter(server_name)
-        if error:
-            return error
+        try:
+            adapter = await self._get_target_adapter(server_name)
+        except AdapterNotFoundError as e:
+            return str(e)
 
         if action == "bind":
             success = await adapter.bind_group(group_id)
@@ -224,11 +230,10 @@ mc:
     async def _handle_rcon_logic(self, event: AstrMessageEvent):
         """RCON命令的核心逻辑"""
         command_to_execute = event.message_str.replace("rcon", "", 1).strip()
-        adapter = await self.plugin.get_minecraft_adapter()
-        
-        if command_to_execute == "重启":
-            await self.plugin.rcon_manager.initialize(adapter)
-            return "🔄 正在尝试重新连接RCON服务器..."
+        try:
+            adapter = await self._get_target_adapter()
+        except AdapterNotFoundError as e:
+            return str(e)
 
         success, message = await self.plugin.rcon_manager.execute_command(
             command_to_execute, event.get_sender_id(), adapter

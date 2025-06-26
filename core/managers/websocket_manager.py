@@ -38,87 +38,44 @@ class WebSocketManager:
         elif isinstance(error, websockets.exceptions.InvalidStatusCode):
             return error.status_code in self.FATAL_STATUS_CODES
         return False
-    
-    def _should_stop_retrying(self, retry_count: int) -> bool:
-        """判断是否应该停止重试"""
-        return self.total_retries >= self.max_retries or retry_count > self.max_retries
 
     async def start(self):
         """启动WebSocket客户端，维持连接"""
-        retry_count = 0
-        
         while self.should_reconnect:
             try:
-                if not self.connected:
-                    logger.info(f"正在连接到鹊桥模组WebSocket服务器: {self.ws_url}")
-                    
-                    # 记录token使用情况
-                    if not self.headers.get("Authorization"):
-                        logger.warning("未配置Authorization，连接可能不安全")
-
-                    # 尝试建立连接
-                    self.websocket = await websockets.connect(
-                        self.ws_url,
-                        additional_headers=self.headers,
-                        ping_interval=30,  # 保持心跳
-                        ping_timeout=10
-                    )
-
+                async with websockets.connect(
+                    self.ws_url,
+                    additional_headers=self.headers,
+                    ping_interval=30,
+                    ping_timeout=10
+                ) as websocket:
+                    self.websocket = websocket
                     self.connected = True
-                    retry_count = 0  # 重置重试计数
-                    self.total_retries = 0  # 重置总重试次数
+                    self.total_retries = 0
                     logger.info("成功连接到鹊桥模组WebSocket服务器")
 
-                    # 持续接收消息
-                    while True:
-                        try:
-                            message = await self.websocket.recv()
-                            logger.debug(f"原始WebSocket消息: {message}")
-                            if self.message_handler:
-                                await self.message_handler(message)
-                        except websockets.exceptions.ConnectionClosed as e:
-                            logger.warning(f"WebSocket连接已关闭，代码: {e.code}, 原因: {e.reason}")
-                            self.connected = False
-                            self.websocket = None
-                            
-                            # 检查是否是致命错误
-                            if self._is_fatal_error(e):
-                                logger.error(f"WebSocket连接因致命错误而关闭: {e.reason}")
-                                self.should_reconnect = False
-                                break
-                            
-                            break
+                    async for message in websocket:
+                        logger.debug(f"原始WebSocket消息: {message}")
+                        if self.message_handler:
+                            await self.message_handler(message)
 
-            except (websockets.exceptions.ConnectionClosed,
-                    websockets.exceptions.WebSocketException,
-                    ConnectionRefusedError,
-                    asyncio.TimeoutError) as e:
+            except (websockets.exceptions.ConnectionClosed, websockets.exceptions.WebSocketException, ConnectionRefusedError, asyncio.TimeoutError) as e:
                 self.connected = False
                 self.websocket = None
-                
-                # 检查是否是致命错误
+
                 if self._is_fatal_error(e):
                     logger.error(f"致命错误，停止重试: {e}")
                     self.should_reconnect = False
                     break
 
-                retry_count += 1
                 self.total_retries += 1
-                
-                # 检查是否应该停止重试
-                if self._should_stop_retrying(retry_count):
-                    if self.total_retries >= self.max_retries:
-                        logger.error(f"WebSocket连接失败次数已达到最大限制({self.max_retries}次)，停止重试")
-                    else:
-                        logger.error(f"WebSocket连接失败次数过多({retry_count}次)，将在60秒后重试")
-                        await asyncio.sleep(60)
-                        retry_count = 0
-                        continue
+                if self.total_retries > self.max_retries:
+                    logger.error(f"WebSocket连接失败次数已达到最大限制({self.max_retries}次)，停止重试")
                     self.should_reconnect = False
                     break
-                
-                wait_time = min(self.reconnect_interval * retry_count, 60)  # 指数退避，最大60秒
-                logger.error(f"WebSocket连接错误: {e}, 将在{wait_time}秒后尝试重新连接...(第{retry_count}次，总计{self.total_retries}次)")
+
+                wait_time = min(self.reconnect_interval * self.total_retries, 60)
+                logger.error(f"WebSocket连接错误: {e}, 将在{wait_time}秒后尝试重新连接...(第{self.total_retries}次)")
                 await asyncio.sleep(wait_time)
 
             except Exception as e:

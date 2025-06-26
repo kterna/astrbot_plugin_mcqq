@@ -87,15 +87,24 @@ class RconManager:
                 self.rcon_connected = False
                 self.rcon_client = None
 
-    def _check_rcon_availability(self, sender_id: str) -> Tuple[bool, str]:
-        """检查RCON是否可用"""
+    def _check_rcon_availability(self, sender_id: str, adapter=None) -> Tuple[bool, str]:
+        """检查RCON是否可用，并在未连接时尝试重连"""
         if not self.rcon_enabled:
             logger.info(f"RCON: 用户 {sender_id} 尝试执行rcon指令，但RCON功能未启用。")
             return False, "❌ RCON 功能当前未启用。请联系管理员在插件配置中启用。"
         
         if not self.rcon_client or not self.rcon_connected:
-            logger.warning(f"RCON: 用户 {sender_id} 尝试执行指令但RCON未连接。")
-            return False, "❌ RCON未连接到Minecraft服务器。正在尝试连接..."
+            logger.warning(f"RCON: 用户 {sender_id} 尝试执行指令但RCON未连接。正在尝试自动重连...")
+            
+            # 尝试自动重连
+            reconnect_success = asyncio.run_coroutine_threadsafe(self.reconnect(adapter), asyncio.get_running_loop()).result()
+            
+            if reconnect_success:
+                logger.info("RCON: 自动重连成功。")
+                return True, ""
+            else:
+                logger.error("RCON: 自动重连失败。")
+                return False, "❌ RCON未连接到Minecraft服务器，自动重连失败。请手动使用 'rcon 重启' 命令。"
         
         return True, ""
 
@@ -129,14 +138,18 @@ class RconManager:
         """
         # 重新连接命令
         if command == "重启":
-            success = await self.reconnect(adapter)
-            return success, "🔄 正在尝试重新连接RCON服务器..."
+            logger.info(f"RCON: 用户 {sender_id} 正在尝试重启RCON连接...")
+            reconnect_success = await self.reconnect(adapter)
+            if reconnect_success:
+                return True, "✅ RCON连接已成功重启。"
+            else:
+                return False, "❌ RCON连接重启失败。请检查服务器状态和配置。"
         
         if not command:
             return False, "❓ 请提供要执行的RCON指令，例如：/rcon whitelist add 玩家名"
         
         # 检查RCON可用性
-        is_available, error_msg = self._check_rcon_availability(sender_id)
+        is_available, error_msg = self._check_rcon_availability(sender_id, adapter)
         if not is_available:
             return False, error_msg
         
