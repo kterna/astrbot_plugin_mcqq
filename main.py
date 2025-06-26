@@ -206,6 +206,12 @@ class MCQQPlugin(Star):
         async for result in self._handle_command(event, self.command_handler.handle_custom_broadcast_command):
             yield result
 
+    @filter.command("mc玩家列表")
+    async def mc_player_list_command(self, event: AstrMessageEvent):
+        """获取Minecraft服务器玩家列表的命令"""
+        async for result in self._handle_command(event, self.command_handler.handle_player_list_command):
+            yield result
+
     async def terminate(self):
         """插件终止时的清理工作"""
         logger.info("插件终止")
