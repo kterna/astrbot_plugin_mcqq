@@ -222,7 +222,6 @@ mc:
     #astr - 发起ai对话
     #qq - 向qq群发送消息
     #wiki 词条名称 - 查询Minecraft Wiki
-    #重启qq - 若qq机器人无反应大概率是被腾讯踢掉了请输入这个命令
 """
     
     async def handle_rcon_command(self, event: AstrMessageEvent):
