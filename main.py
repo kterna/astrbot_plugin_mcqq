@@ -23,7 +23,7 @@ from .core.handlers.command_handler import CommandHandler
 # 导入路由管理器
 from .core.routing.adapter_router import AdapterRouter
 
-@register("mcqq", "kterna", "通过鹊桥模组实现Minecraft平台适配器，以及mcqq互联的插件", "1.7.0", "https://github.com/kterna/astrbot_plugin_mcqq")
+@register("mcqq", "kterna", "通过鹊桥模组实现Minecraft平台适配器，以及mcqq互联的插件", "1.7.1", "https://github.com/kterna/astrbot_plugin_mcqq")
 class MCQQPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -97,6 +97,7 @@ class MCQQPlugin(Star):
             self.minecraft_adapter = minecraft_adapters[0]
             logger.info(f"已设置主适配器: {self.minecraft_adapter.adapter_id}")
         else:
+            self.minecraft_adapter = None
             logger.warning("未找到任何Minecraft平台适配器，请确保适配器已正确注册并启用")
 
     async def initialize_rcon(self):
@@ -205,6 +206,12 @@ class MCQQPlugin(Star):
         async for result in self._handle_command(event, self.command_handler.handle_custom_broadcast_command):
             yield result
 
+    @filter.command("mc玩家列表")
+    async def mc_player_list_command(self, event: AstrMessageEvent):
+        """获取Minecraft服务器玩家列表的命令"""
+        async for result in self._handle_command(event, self.command_handler.handle_player_list_command):
+            yield result
+
     async def terminate(self):
         """插件终止时的清理工作"""
         logger.info("插件终止")
@@ -241,3 +248,12 @@ class MCQQPlugin(Star):
             logger.debug(f"清理后 platform_registry: {[p.name for p in platform_registry]}")
         except Exception as e:
             logger.error(f"清理 Minecraft 平台适配器注册信息失败: {str(e)}")
+
+    async def get_minecraft_adapter(self, server_name: Optional[str] = None) -> Optional[MinecraftPlatformAdapter]:
+        """获取指定的Minecraft平台适配器，如果未指定则获取主适配器"""
+        if server_name:
+            for adapter in self.adapter_router.get_all_adapters():
+                if adapter.server_name == server_name or adapter.adapter_id == server_name:
+                    return adapter
+            return None
+        return self.minecraft_adapter

@@ -293,7 +293,7 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
 
     async def is_connected(self) -> bool:
         """实现基类的连接状态检查方法"""
-        return self.connected
+        return self.websocket_manager.connected
 
     async def send_mc_message(self, message: str, sender: str = None):
         """发送消息到Minecraft服务器"""
@@ -356,7 +356,4 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
         """检查玩家是否为假人（委托给BotFilter）"""
         return self.bot_filter.is_bot_player(player_name)
 
-    @property
-    def connected(self) -> bool:
-        """获取连接状态"""
-        return self.websocket_manager.connected
+    

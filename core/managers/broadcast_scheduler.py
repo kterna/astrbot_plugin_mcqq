@@ -1,6 +1,6 @@
 import asyncio
 import datetime
-from typing import Callable, Optional
+from typing import Callable, Optional, List, Any
 
 from astrbot import logger
 
@@ -48,28 +48,31 @@ class BroadcastScheduler:
             logger.debug(f"下一次整点广播将在 {sleep_time:.2f} 秒后")
             await asyncio.sleep(sleep_time)
 
-            await self.execute_hourly_broadcast()
+            # 获取所有适配器并执行广播
+            adapters = await self.config_manager.plugin.get_all_minecraft_adapter()
+            await self.execute_hourly_broadcast(adapters)
 
-    async def execute_hourly_broadcast(self):
+    async def execute_hourly_broadcast(self, adapters: List[Any]):
         """执行一次完整的整点广播（包括Wiki）"""
         if not self.config_manager.is_enabled():
             logger.info("整点广播已关闭，跳过广播")
             return
 
-        # 广播主要内容
-        content = self.config_manager.hourly_broadcast_content
-        success = await self.broadcast_callback(content)
-        if success:
-            logger.info("整点广播已成功执行")
-        else:
-            logger.warning("整点广播执行失败")
+        # 为每个适配器广播其特定的内容
+        for adapter in adapters:
+            content = self.config_manager.get_broadcast_content(adapter.adapter_id)
+            success = await self.broadcast_callback([adapter], content)
+            if success:
+                logger.info(f"向适配器 {adapter.adapter_id} 的整点广播已成功执行")
+            else:
+                logger.warning(f"向适配器 {adapter.adapter_id} 的整点广播执行失败")
 
         # 广播Wiki内容
         try:
             wiki_content = await WikiUtils.get_wiki_broadcast_content()
             if wiki_content:
                 await asyncio.sleep(0.1)  # 短暂延迟，避免消息刷屏
-                await self.broadcast_callback(wiki_content)
+                await self.broadcast_callback(adapters, wiki_content)
             else:
                 logger.warning("获取Wiki随机内容失败，跳过Wiki广播")
         except Exception as e:

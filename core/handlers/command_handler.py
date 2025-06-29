@@ -6,6 +6,12 @@ from astrbot import logger
 import base64, uuid
 from astrbot.core.star.star_tools import StarTools
 import os
+import json
+
+
+class AdapterNotFoundError(Exception):
+    """当找不到适配器时引发的异常"""
+    pass
 
 
 class Messages:
@@ -47,13 +53,13 @@ class CommandHandler:
         if server_name:
             for adapter in self.plugin.adapter_router.get_all_adapters():
                 if adapter.server_name == server_name or adapter.adapter_id == server_name:
-                    return adapter, None
-            return None, f"❌ 未找到名为 {server_name} 的Minecraft适配器"
+                    return adapter
+            raise AdapterNotFoundError(f"❌ 未找到名为 {server_name} 的Minecraft适配器")
         
         adapter = await self.plugin.get_minecraft_adapter()
         if not adapter:
-            return None, Messages.ADAPTER_NOT_FOUND
-        return adapter, None
+            raise AdapterNotFoundError(Messages.ADAPTER_NOT_FOUND)
+        return adapter
 
     async def handle_bind_command(self, event: AstrMessageEvent):
         """处理mcbind命令，支持多服务器参数"""
@@ -69,9 +75,10 @@ class CommandHandler:
         tokens = event.message_str.strip().split()
         server_name = tokens[1] if len(tokens) > 1 else None
 
-        adapter, error = await self._get_target_adapter(server_name)
-        if error:
-            return error
+        try:
+            adapter = await self._get_target_adapter(server_name)
+        except AdapterNotFoundError as e:
+            return str(e)
 
         if action == "bind":
             success = await adapter.bind_group(group_id)
@@ -209,12 +216,12 @@ qq群:
     /mc广播测试 - 测试发送整点广播 (仅管理员)
     /mc广播清除 - 清除自定义广播内容，恢复默认 (仅管理员)
     /mc自定义广播 [文本]|[点击命令]|[悬浮文本] - 发送自定义富文本广播 (仅管理员)
+    /mc玩家列表 - 获取服务器在线玩家列表
     /投影 - 获取投影菜单帮助(依赖插件astrbot_plugin_litematic)
 mc:
     #astr - 发起ai对话
     #qq - 向qq群发送消息
     #wiki 词条名称 - 查询Minecraft Wiki
-    #重启qq - 若qq机器人无反应大概率是被腾讯踢掉了请输入这个命令
 """
     
     async def handle_rcon_command(self, event: AstrMessageEvent):
@@ -224,11 +231,10 @@ mc:
     async def _handle_rcon_logic(self, event: AstrMessageEvent):
         """RCON命令的核心逻辑"""
         command_to_execute = event.message_str.replace("rcon", "", 1).strip()
-        adapter = await self.plugin.get_minecraft_adapter()
-        
-        if command_to_execute == "重启":
-            await self.plugin.rcon_manager.initialize(adapter)
-            return "🔄 正在尝试重新连接RCON服务器..."
+        try:
+            adapter = await self._get_target_adapter()
+        except AdapterNotFoundError as e:
+            return str(e)
 
         success, message = await self.plugin.rcon_manager.execute_command(
             command_to_execute, event.get_sender_id(), adapter
@@ -317,4 +323,121 @@ mc:
             return "✅ 自定义广播已发送" if success else "❌ 发送自定义广播失败，请查看日志"
         except Exception as e:
             logger.error(f"发送自定义广播时出错: {str(e)}")
-            return f"❌ 发送自定义广播时出错: {str(e)}" 
+            return f"❌ 发送自定义广播时出错: {str(e)}"
+
+    async def handle_player_list_command(self, event: AstrMessageEvent):
+        """处理mc玩家列表命令"""
+        try:
+            adapter = await self._get_target_adapter()
+        except AdapterNotFoundError as e:
+            return str(e)
+        
+        if not await adapter.is_connected():
+            return "❌ Minecraft适配器未连接，请检查连接状态"
+        
+        try:
+            # 发送获取玩家列表的API请求
+            api_request = {
+                "api": "get_player_list",
+                "data": {}
+            }
+            
+            logger.debug(f"发送获取玩家列表请求: {api_request}")
+            success = await adapter.websocket_manager.send_message(api_request)
+            
+            if not success:
+                return "❌ 请求失败，请检查是否为mcdr插件或网络连接"
+            
+            # 等待响应 (创建一个简单的响应等待机制)
+            response = await self._wait_for_api_response(adapter, "get_player_list", timeout=5)
+            
+            if not response:
+                return "❌ 请求超时，请检查是否为mcdr插件或网络连接"
+            
+            return self._format_player_list_response(response)
+            
+        except Exception as e:
+            logger.error(f"获取玩家列表时出错: {str(e)}")
+            return "❌ 请求失败，请检查是否为mcdr插件或网络连接"
+    
+    async def _wait_for_api_response(self, adapter, api_name: str, timeout: int = 5):
+        """等待API响应的辅助方法"""
+        import asyncio
+        import time
+        
+        # 设置响应等待器
+        adapter.api_response_waiter = None
+        start_time = time.time()
+        
+        # 创建一个临时的消息处理器来捕获API响应
+        original_handler = adapter.websocket_manager.message_handler
+        response_data = None
+        
+        async def temp_message_handler(message: str):
+            nonlocal response_data
+            try:
+                data = json.loads(message)
+                # 检查是否是我们期待的API响应
+                if (data.get("api") == api_name or 
+                    (data.get("data", {}).get("players") is not None and api_name == "get_player_list")):
+                    response_data = data
+                    return
+            except:
+                pass
+            # 如果不是API响应，继续使用原始处理器
+            if original_handler:
+                await original_handler(message)
+        
+        # 临时替换消息处理器
+        adapter.websocket_manager.set_message_handler(temp_message_handler)
+        
+        try:
+            # 等待响应
+            while time.time() - start_time < timeout and response_data is None:
+                await asyncio.sleep(0.1)
+            
+            return response_data
+        finally:
+            # 恢复原始消息处理器
+            adapter.websocket_manager.set_message_handler(original_handler)
+    
+    def _format_player_list_response(self, response):
+        """格式化玩家列表响应"""
+        try:
+            if response.get("status") != "ok":
+                return "❌ 服务器返回错误状态"
+            
+            data = response.get("data", {})
+            players = data.get("players", [])
+            count = data.get("count", 0)
+            max_players = data.get("max_players", 0)
+            
+            if count == 0:
+                return f"🎮 服务器当前无玩家在线 (0/{max_players})"
+            
+            result = f"🎮 在线玩家列表 ({count}/{max_players}):\n"
+            
+            for i, player in enumerate(players, 1):
+                nickname = player.get("nickname", "未知")
+                is_op = player.get("is_op", False)
+                online = player.get("online", True)
+                dimension = player.get("dimension")
+                coordinate = player.get("coordinate")
+                
+                status_icon = "👑" if is_op else "👤"
+                online_status = "🟢" if online else "🔴"
+                
+                result += f"{i}. {status_icon} {nickname} {online_status}"
+                
+                if dimension:
+                    result += f" [{dimension}]"
+                if coordinate:
+                    result += f" ({coordinate})"
+                
+                result += "\n"
+            
+            return result.strip()
+            
+        except Exception as e:
+            logger.error(f"格式化玩家列表时出错: {str(e)}")
+            return "❌ 解析玩家列表数据时出错" 
