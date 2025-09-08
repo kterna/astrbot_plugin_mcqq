@@ -24,23 +24,28 @@ from ..managers.message_sender import MessageSender
 from ..utils.bot_filter import BotFilter
 from ..handlers.message_handler import MessageHandler
 
-@register_platform_adapter("minecraft", "Minecraft服务器适配器", default_config_tmpl={
-    "adapter_id": "minecraft_server_1",  # 添加适配器ID配置
-    "ws_url": "ws://127.0.0.1:8080/minecraft/ws",
-    "server_name": "Server",
-    "Authorization": "",
-    "enable_join_quit_messages": True,
-    "qq_message_prefix": "[MC]",
-    "max_reconnect_retries": 5,
-    "reconnect_interval": 3,
-    "filter_bots": True,
-    "bot_prefix": ["bot_", "Bot_"],
-    "bot_suffix": [],
-    "rcon_enabled": False,
-    "rcon_host": "localhost",
-    "rcon_port": 25575,
-    "rcon_password": ""
-})
+@register_platform_adapter(
+    "minecraft", 
+    "Minecraft服务器适配器", 
+    logo_path="minecraft.png",  # 新增：指定logo文件路径
+    default_config_tmpl={
+        "adapter_id": "minecraft_server_1",  # 添加适配器ID配置
+        "ws_url": "ws://127.0.0.1:8080/minecraft/ws",
+        "server_name": "Server",
+        "Authorization": "",
+        "enable_join_quit_messages": True,
+        "qq_message_prefix": "[MC]",
+        "max_reconnect_retries": 5,
+        "reconnect_interval": 3,
+        "filter_bots": True,
+        "bot_prefix": ["bot_", "Bot_"],
+        "bot_suffix": [],
+        "rcon_enabled": False,
+        "rcon_host": "localhost",
+        "rcon_port": 25575,
+        "rcon_password": ""
+    }
+)
 class MinecraftPlatformAdapter(BaseMinecraftAdapter):
     def __init__(self, platform_config: dict, platform_settings: dict, event_queue: asyncio.Queue) -> None:
         super().__init__(platform_config, platform_settings, event_queue)
