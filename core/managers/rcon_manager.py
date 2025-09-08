@@ -3,7 +3,7 @@ from typing import Optional, Tuple
 import aiomcrcon
 from astrbot import logger
 
-from core.utils.minecraft_utils import strip_minecraft_formatting_codes
+from ..utils.minecraft_utils import strip_minecraft_formatting_codes
 
 
 class RconManager:

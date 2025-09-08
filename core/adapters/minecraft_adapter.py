@@ -27,7 +27,7 @@ from ..handlers.message_handler import MessageHandler
 @register_platform_adapter(
     "minecraft", 
     "Minecraft服务器适配器", 
-    logo_path="minecraft.png",  # 新增：指定logo文件路径
+    # logo_path="minecraft.png",  # 新增：指定logo文件路径
     default_config_tmpl={
         "adapter_id": "minecraft_server_1",  # 添加适配器ID配置
         "ws_url": "ws://127.0.0.1:8080/minecraft/ws",
