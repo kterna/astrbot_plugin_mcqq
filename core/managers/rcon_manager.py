@@ -3,6 +3,8 @@ from typing import Optional, Tuple
 import aiomcrcon
 from astrbot import logger
 
+from core.utils.minecraft_utils import strip_minecraft_formatting_codes
+
 
 class RconManager:
     """RCON连接和命令管理器"""
@@ -113,8 +115,9 @@ class RconManager:
         try:
             response = await self.rcon_client.send_cmd(command)
             actual_response = response[0] if response else "无响应消息"
-            logger.info(f"RCON: 指令 '{command}' 响应: {actual_response}")
-            return actual_response
+            cleaned_response = strip_minecraft_formatting_codes(actual_response)
+            logger.info(f"RCON: 指令 '{command}' 响应: {cleaned_response}")
+            return cleaned_response
             
         except aiomcrcon.ClientNotConnectedError:
             logger.error("RCON: 在发送指令时发现客户端未连接。")
