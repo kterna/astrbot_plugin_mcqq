@@ -286,7 +286,7 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
                     # 发送消息
                     try:
                         await self.context.send_message(session, message_chain)
-                        logger.debug(f"通过context.send_message成功发送消息到群 {group_id}")
+                        logger.info(f"通过context.send_message成功发送消息到群 {group_id}")
                         continue  # 发送成功，继续处理下一个群
                     except Exception as e:
                         logger.warning(f"通过context.send_message发送消息到群 {group_id} 失败: {str(e)}")
