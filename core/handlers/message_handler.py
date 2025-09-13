@@ -91,7 +91,7 @@ class MessageHandler:
         abm.message = [Plain(text=message_text)]
         abm.raw_message = {"content": message_text}
         abm.self_id = f"minecraft_{self.server_name}"
-        abm.session_id = f"minecraft_{player_name}"
+        abm.session_id = f"minecraft_{self.server_name}"
         abm.message_id = str(uuid.uuid4())
 
         # 创建消息事件
@@ -99,7 +99,7 @@ class MessageHandler:
             message_str=message_text,
             message_obj=abm,
             platform_meta=platform_meta,
-            session_id=f"minecraft_{player_name}",
+            session_id=f"minecraft_{self.server_name}",
             adapter=adapter,
             message_type=MessageType.GROUP_MESSAGE
         )
@@ -148,7 +148,7 @@ class MessageHandler:
         abm.message = [Plain(text=command_text)]
         abm.raw_message = {"content": command_text}
         abm.self_id = f"minecraft_{self.server_name}"
-        abm.session_id = f"minecraft_{player_name}"
+        abm.session_id = f"minecraft_{self.server_name}"
         abm.message_id = str(uuid.uuid4())
 
         # 创建消息事件
@@ -156,7 +156,7 @@ class MessageHandler:
             message_str=command_text,
             message_obj=abm,
             platform_meta=platform_meta,
-            session_id=f"minecraft_{player_name}",
+            session_id=f"minecraft_{self.server_name}",
             adapter=adapter,
             message_type=MessageType.GROUP_MESSAGE  # 显式指定消息类型
         )
