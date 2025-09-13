@@ -11,14 +11,16 @@ from ..utils.wiki_utils import WikiUtils
 class BroadcastScheduler:
     """调度和执行整点广播"""
 
-    def __init__(self, config_manager: BroadcastConfigManager, broadcast_callback: Callable):
+    def __init__(self, plugin_instance, config_manager: BroadcastConfigManager, broadcast_callback: Callable):
         """
         初始化调度器。
 
         Args:
+            plugin_instance: MCQQPlugin 实例。
             config_manager (BroadcastConfigManager): 配置管理器实例。
             broadcast_callback (Callable): 发送广播时要调用的回调函数。
         """
+        self.plugin = plugin_instance
         self.config_manager = config_manager
         self.broadcast_callback = broadcast_callback
         self.hourly_broadcast_task: Optional[asyncio.Task] = None
@@ -49,7 +51,7 @@ class BroadcastScheduler:
             await asyncio.sleep(sleep_time)
 
             # 获取所有适配器并执行广播
-            adapters = await self.config_manager.plugin.get_all_minecraft_adapter()
+            adapters = await self.plugin.get_all_minecraft_adapter()
             await self.execute_hourly_broadcast(adapters)
 
     async def execute_hourly_broadcast(self, adapters: List[Any]):

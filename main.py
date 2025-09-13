@@ -39,7 +39,7 @@ class MCQQPlugin(Star):
         self.rcon_manager = RconManager()
         self.broadcast_config_manager = BroadcastConfigManager(str(self.data_dir))
         self.broadcast_sender = BroadcastSender()
-        self.broadcast_scheduler = BroadcastScheduler(self.broadcast_config_manager, self._broadcast_callback)
+        self.broadcast_scheduler = BroadcastScheduler(self, self.broadcast_config_manager, self._broadcast_callback)
         
         # 初始化路由管理器
         self.adapter_router = AdapterRouter(str(self.data_dir))

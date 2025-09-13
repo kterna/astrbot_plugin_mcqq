@@ -79,8 +79,6 @@ class MessageHandler:
 
         logger.info(f"{player_name}: {message_text}")
 
-        # 统一创建并提交事件
-        # 创建一个虚拟的消息事件
         abm = AstrBotMessage()
         abm.type = MessageType.GROUP_MESSAGE
         abm.message_str = message_text
@@ -112,21 +110,6 @@ class MessageHandler:
         message_event.on_response = on_response
 
         commit_event_callback(message_event)
-
-        # 如果是以#开头的消息，额外通过旧的指令系统处理一次，以兼容插件自有指令
-        if message_text.startswith("#"):
-            # 委托给命令注册表处理
-            return await self.command_registry.handle_command(
-                message_text=message_text,
-                data=data,
-                server_class=server_class,
-                bound_groups=bound_groups,
-                send_to_groups_callback=send_to_groups_callback,
-                send_mc_message_callback=send_mc_message_callback,
-                commit_event_callback=commit_event_callback,
-                platform_meta=platform_meta,
-                adapter=adapter
-            )
 
         return True
     
