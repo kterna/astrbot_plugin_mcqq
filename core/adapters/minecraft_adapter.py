@@ -14,6 +14,7 @@ from astrbot.core.platform.astr_message_event import MessageSesion
 from astrbot.core.platform.register import register_platform_adapter
 from astrbot.core.star.star_tools import StarTools
 from astrbot import logger
+from astrbot.core.message.message_event_result import MessageChain
 
 from .base_adapter import BaseMinecraftAdapter
 from ..events.minecraft_event import MinecraftMessageEvent
@@ -270,15 +271,13 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
 
     async def send_to_bound_groups(self, group_ids: List[str], message: str):
         """发送消息到绑定的QQ群"""
-        from astrbot.core.message.message_event_result import MessageChain
-        from astrbot.core.platform.astr_message_event import MessageSesion
 
         for group_id in group_ids:
             try:
                 # 如果有context引用，使用context.send_message方法发送消息
                 if hasattr(self, 'context') and self.context:
                     # 创建会话对象
-                    session = f"aiocqhttp:GroupMessage:{group_id}"
+                    session = f"default:GroupMessage:{group_id}"
 
                     # 创建消息链
                     message_chain = MessageChain().message(message)
