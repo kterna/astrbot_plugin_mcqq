@@ -112,9 +112,8 @@ class MCQQPlugin(Star):
         await asyncio.sleep(3)  # 等待适配器初始化
         self.broadcast_scheduler.start()
 
-    async def _broadcast_callback(self, components):
+    async def _broadcast_callback(self, adapters, components):
         """广播回调函数"""
-        adapters = await self.get_all_minecraft_adapter()
         if adapters:
             return await self.broadcast_sender.send_rich_broadcast(adapters, components)
         return False
