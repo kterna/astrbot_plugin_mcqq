@@ -2,9 +2,16 @@ from astrbot.api.event import AstrMessageEvent, MessageChain
 from astrbot.api.platform import AstrBotMessage, PlatformMetadata
 from astrbot.api.message_components import Plain, Image
 from astrbot import logger
-from typing import Callable, Optional, Awaitable
+from typing import Callable, Optional, Awaitable, TYPE_CHECKING
 from astrbot.core.star.star_tools import StarTools
 import os, base64, uuid
+from astrbot.core.platform.astr_message_event import AstrMessageEvent
+from astrbot.core.platform.astrbot_message import AstrBotMessage
+from astrbot.core.platform.platform_metadata import PlatformMetadata
+from astrbot.core.platform.message_type import MessageType  # 导入 MessageType
+
+if TYPE_CHECKING:
+    from ..adapters.minecraft_adapter import MinecraftPlatformAdapter
 
 class MinecraftMessageEvent(AstrMessageEvent):
     def __init__(
@@ -13,8 +20,11 @@ class MinecraftMessageEvent(AstrMessageEvent):
         message_obj: AstrBotMessage,
         platform_meta: PlatformMetadata,
         session_id: str,
-        adapter: "MinecraftPlatformAdapter"
+        adapter: "MinecraftPlatformAdapter",
+        message_type: MessageType = MessageType.GROUP_MESSAGE  # 添加 message_type 参数，并默认为群聊消息
     ):
+        # 在调用父类构造函数之前，设置消息类型
+        message_obj.type = message_type
         super().__init__(message_str, message_obj, platform_meta, session_id)
         self.adapter = adapter
         self.on_response: Optional[Callable[[str], Awaitable[None]]] = None

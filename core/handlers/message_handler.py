@@ -1,6 +1,6 @@
 # filepath: e:\github desktop\AstrBot\data\plugins\astrbot_plugin_mcqq\core\handlers\message_handler.py
 import uuid
-from typing import Dict, Any, List, Callable, Awaitable
+from typing import Dict, Any, List, Callable, Awaitable, TYPE_CHECKING
 from astrbot.api.platform import AstrBotMessage, MessageMember, MessageType
 from astrbot.api.message_components import Plain
 from astrbot import logger
@@ -79,22 +79,56 @@ class MessageHandler:
 
         logger.info(f"{player_name}: {message_text}")
 
-        # 如果不是以#开头的消息，直接返回False
-        if not message_text.startswith("#"):
-            return False
-
-        # 委托给命令注册表处理
-        return await self.command_registry.handle_command(
-            message_text=message_text,
-            data=data,
-            server_class=server_class,
-            bound_groups=bound_groups,
-            send_to_groups_callback=send_to_groups_callback,
-            send_mc_message_callback=send_mc_message_callback,
-            commit_event_callback=commit_event_callback,
-            platform_meta=platform_meta,
-            adapter=adapter
+        # 统一创建并提交事件
+        # 创建一个虚拟的消息事件
+        abm = AstrBotMessage()
+        abm.type = MessageType.GROUP_MESSAGE
+        abm.message_str = message_text
+        abm.sender = MessageMember(
+            user_id=f"minecraft_{player_name}",
+            nickname=player_name
         )
+        abm.message = [Plain(text=message_text)]
+        abm.raw_message = {"content": message_text}
+        abm.self_id = f"minecraft_{self.server_name}"
+        abm.session_id = f"minecraft_{player_name}"
+        abm.message_id = str(uuid.uuid4())
+
+        # 创建消息事件
+        message_event = MinecraftMessageEvent(
+            message_str=message_text,
+            message_obj=abm,
+            platform_meta=platform_meta,
+            session_id=f"minecraft_{player_name}",
+            adapter=adapter,
+            message_type=MessageType.GROUP_MESSAGE
+        )
+
+        # 设置回调函数，以便其他插件的响应可以发送回Minecraft
+        async def on_response(response_message):
+            if response_message and response_message.strip():
+                await send_mc_message_callback(response_message)
+
+        message_event.on_response = on_response
+
+        commit_event_callback(message_event)
+
+        # 如果是以#开头的消息，额外通过旧的指令系统处理一次，以兼容插件自有指令
+        if message_text.startswith("#"):
+            # 委托给命令注册表处理
+            return await self.command_registry.handle_command(
+                message_text=message_text,
+                data=data,
+                server_class=server_class,
+                bound_groups=bound_groups,
+                send_to_groups_callback=send_to_groups_callback,
+                send_mc_message_callback=send_mc_message_callback,
+                commit_event_callback=commit_event_callback,
+                platform_meta=platform_meta,
+                adapter=adapter
+            )
+
+        return True
     
     async def create_astrbot_command_event(self, 
                                          command_text: str, 
@@ -105,7 +139,7 @@ class MessageHandler:
         """创建AstrBot命令事件"""
         # 创建一个虚拟的消息事件，用于执行指令
         abm = AstrBotMessage()
-        abm.type = MessageType.FRIEND_MESSAGE
+        abm.type = MessageType.GROUP_MESSAGE
         abm.message_str = command_text
         abm.sender = MessageMember(
             user_id=f"minecraft_{player_name}",
@@ -123,7 +157,8 @@ class MessageHandler:
             message_obj=abm,
             platform_meta=platform_meta,
             session_id=f"minecraft_{player_name}",
-            adapter=adapter
+            adapter=adapter,
+            message_type=MessageType.GROUP_MESSAGE  # 显式指定消息类型
         )
 
         # 设置回调函数，将AstrBot的响应发送回Minecraft
