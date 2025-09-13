@@ -23,7 +23,7 @@ from .core.handlers.command_handler import CommandHandler
 # 导入路由管理器
 from .core.routing.adapter_router import AdapterRouter
 
-@register("mcqq", "kterna", "通过鹊桥模组实现Minecraft平台适配器，以及mcqq互联的插件", "1.7.3", "https://github.com/kterna/astrbot_plugin_mcqq")
+@register("mcqq", "kterna", "通过鹊桥模组实现Minecraft平台适配器，以及mcqq互联的插件", "1.7.4", "https://github.com/kterna/astrbot_plugin_mcqq")
 class MCQQPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
