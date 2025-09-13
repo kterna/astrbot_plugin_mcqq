@@ -294,7 +294,7 @@ mc:
         adapter_id = command_content if command_content else None
         
         logger.info(f"用户 {event.get_sender_id()} 触发了测试广播")
-        await self.plugin.broadcast_scheduler.execute_hourly_broadcast()
+        await self.plugin.broadcast_scheduler.execute_hourly_broadcast(self.plugin.adapters)
         return "✅ 已触发测试广播"
 
     async def handle_custom_broadcast_command(self, event: AstrMessageEvent):
