@@ -60,6 +60,10 @@ class BroadcastScheduler:
 
         # 为每个适配器广播其特定的内容
         for adapter in adapters:
+            if not await self._ensure_adapter_connection(adapter):
+                logger.warning(f"适配器 {adapter.adapter_id} 未连接，已尝试触发重连，本次广播跳过")
+                continue
+
             content = self.config_manager.get_broadcast_content(adapter.adapter_id)
             success = await self.broadcast_callback([adapter], content)
             if success:
@@ -76,4 +80,27 @@ class BroadcastScheduler:
             else:
                 logger.warning("获取Wiki随机内容失败，跳过Wiki广播")
         except Exception as e:
-            logger.error(f"Wiki广播执行时出错: {str(e)}") 
+            logger.error(f"Wiki广播执行时出错: {str(e)}")
+
+    async def _ensure_adapter_connection(self, adapter: Any) -> bool:
+        """确保适配器在广播前已连接，如果未连接则触发一次重连"""
+        if await adapter.is_connected():
+            return True
+
+        logger.warning(f"适配器 {adapter.adapter_id} 未连接，尝试重新连接")
+
+        try:
+            websocket_manager = adapter.websocket_manager
+            websocket_manager.connected = False
+            websocket_manager.websocket = None
+            websocket_manager.should_reconnect = True
+            websocket_manager.total_retries = 0
+            asyncio.create_task(websocket_manager.start())
+
+            # 等待一小段时间让重连任务启动
+            await asyncio.sleep(min(getattr(websocket_manager, "reconnect_interval", 1), 3))
+        except Exception as e:
+            logger.error(f"触发适配器 {adapter.adapter_id} 重连失败: {e}")
+            return False
+
+        return await adapter.is_connected()
