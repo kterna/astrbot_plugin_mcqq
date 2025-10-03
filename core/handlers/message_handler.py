@@ -77,6 +77,25 @@ class MessageHandler:
         player_name = player_data.get("nickname", player_data.get("display_name", "未知玩家"))
         message_text = data.get("message", "")
 
+        # 优先执行插件内注册的命令，未命中再交由 AstrBot 处理
+        try:
+            if self.command_registry:
+                handled = await self.command_registry.handle_command(
+                    message_text=message_text,
+                    data=data,
+                    server_class=server_class,
+                    bound_groups=bound_groups,
+                    send_to_groups_callback=send_to_groups_callback,
+                    send_mc_message_callback=send_mc_message_callback,
+                    commit_event_callback=commit_event_callback,
+                    platform_meta=platform_meta,
+                    adapter=adapter
+                )
+                if handled:
+                    return True
+        except Exception as e:
+            logger.error(f"执行 Minecraft 专用命令时出错: {e}")
+
         logger.info(f"{player_name}: {message_text}")
 
         abm = AstrBotMessage()
