@@ -1,6 +1,6 @@
 # filepath: e:\github desktop\AstrBot\data\plugins\astrbot_plugin_mcqq\core\handlers\message_handler.py
 import uuid
-from typing import Dict, Any, List, Callable, Awaitable, TYPE_CHECKING
+from typing import Dict, Any, List, Callable, Awaitable, TYPE_CHECKING, Optional
 from astrbot.api.platform import AstrBotMessage, MessageMember, MessageType
 from astrbot.api.message_components import Plain
 from astrbot import logger
@@ -35,7 +35,34 @@ class MessageHandler:
         
         # 使用命令工厂创建命令注册表
         self.command_registry = CommandFactory.setup_command_registry(self)
-               
+
+    def _extract_command_text(self, message_text: str, adapter=None) -> Optional[str]:
+        """移除唤醒词并返回命令文本。未匹配唤醒词时返回 None。"""
+        if not message_text:
+            return None
+
+        raw_text = message_text.strip()
+        if not raw_text:
+            return None
+
+        wake_prefixes = []
+        if adapter and getattr(adapter, "context", None):
+            try:
+                config = adapter.context.get_config()
+                wake_prefixes = config.get("wake_prefix", []) or []
+            except Exception as e:
+                logger.debug(f"读取唤醒词配置失败: {e}")
+
+        for prefix in wake_prefixes:
+            if prefix and raw_text.startswith(prefix):
+                return raw_text[len(prefix):].lstrip()
+
+        # 兼容旧配置，默认识别单个 '#' 作为唤醒词
+        if raw_text.startswith("#"):
+            return raw_text[1:].lstrip()
+
+        return None
+
     def get_server_class(self, server_type: str):
         """根据服务器类型获取对应的服务器类型对象"""
         server_classes = {
@@ -79,9 +106,10 @@ class MessageHandler:
 
         # 优先执行插件内注册的命令，未命中再交由 AstrBot 处理
         try:
-            if self.command_registry:
+            command_text = self._extract_command_text(message_text, adapter)
+            if self.command_registry and command_text is not None:
                 handled = await self.command_registry.handle_command(
-                    message_text=message_text,
+                    message_text=command_text,
                     data=data,
                     server_class=server_class,
                     bound_groups=bound_groups,
@@ -162,6 +190,10 @@ class MessageHandler:
             adapter=adapter,
             message_type=MessageType.GROUP_MESSAGE  # 显式指定消息类型
         )
+
+        # 标记该事件已通过唤醒词判定，确保 AstrBot 指令过滤器生效
+        message_event.is_at_or_wake_command = True
+        message_event.is_wake = True
 
         # 设置回调函数，将AstrBot的响应发送回Minecraft
         async def on_response(response_message):

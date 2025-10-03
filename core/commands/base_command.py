@@ -29,19 +29,28 @@ class BaseCommand(ABC):
         Returns:
             bool: 是否匹配
         """
-        if not message_text.startswith("#"):
+        if not message_text:
             return False
-            
+
+        command_text = message_text.strip()
+
         if self.prefix is None:
-            # 通用处理器，匹配所有#开头的消息
-            return True
-            
-        command_part = message_text[1:]  # 去掉#
-        
+            # 通用处理器，匹配任意命令文本
+            return bool(command_text)
+
+        if not command_text.startswith(self.prefix):
+            return False
+
         if self.exact_match:
-            return command_part == self.prefix
-        else:
-            return command_part.startswith(self.prefix)
+            remaining = command_text[len(self.prefix):]
+            return remaining == ""
+
+        # 对于非精确匹配，允许后续存在空白或更多内容
+        if len(command_text) == len(self.prefix):
+            return True
+
+        next_char = command_text[len(self.prefix)]
+        return next_char.isspace()
     
     @abstractmethod
     async def execute(self, 
@@ -76,7 +85,7 @@ class BaseCommand(ABC):
     def get_help_text(self) -> str:
         """
         获取命令的帮助文本
-        
+
         Returns:
             str: 帮助文本
         """
@@ -85,3 +94,12 @@ class BaseCommand(ABC):
     def get_priority(self) -> int:
         """获取命令优先级"""
         return self.priority
+
+    def remove_prefix(self, message_text: str) -> str:
+        """移除命令前缀并返回剩余内容"""
+        if not self.prefix:
+            return message_text.strip()
+        stripped = message_text.strip()
+        if stripped.startswith(self.prefix):
+            return stripped[len(self.prefix):].lstrip()
+        return stripped

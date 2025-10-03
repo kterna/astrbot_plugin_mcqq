@@ -28,7 +28,7 @@ class WikiCommand(BaseCommand):
         player_name = player_data.get("nickname", player_data.get("display_name", "未知玩家"))
         
         # 获取查询关键词
-        wiki_title = message_text[5:].strip()  # 去掉 "#wiki" 前缀
+        wiki_title = self.remove_prefix(message_text)
 
         try:
             if not wiki_title:
@@ -66,4 +66,4 @@ class WikiCommand(BaseCommand):
     
     def get_help_text(self) -> str:
         """获取帮助文本"""
-        return "#wiki [关键词] - 查询Minecraft Wiki信息，不带关键词则获取随机知识"
+        return "<唤醒词>wiki [关键词] - 查询Minecraft Wiki信息，不带关键词则获取随机知识"

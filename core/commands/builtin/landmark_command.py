@@ -57,8 +57,8 @@ class LandmarkCommand(BaseCommand):
 
     def _parse_arguments(self, message_text: str) -> LandmarkArgs:
         """解析路标命令参数"""
-        # 去掉 "#路标" 前缀并分割参数
-        args = message_text[3:].strip().split()
+        # 去掉命令前缀并分割参数
+        args = self.remove_prefix(message_text).split()
         
         if not args:
             raise ValueError("请提供操作类型")
