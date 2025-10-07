@@ -14,6 +14,7 @@ from astrbot.core.platform.astr_message_event import MessageSesion
 from astrbot.core.platform.register import register_platform_adapter
 from astrbot.core.star.star_tools import StarTools
 from astrbot import logger
+from astrbot.core.message.message_event_result import MessageChain
 
 from .base_adapter import BaseMinecraftAdapter
 from ..events.minecraft_event import MinecraftMessageEvent
@@ -123,10 +124,8 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
 
     async def run(self) -> Awaitable[Any]:
         """启动WebSocket客户端，维持与鹊桥模组的连接"""
-        # 创建一个新的任务来启动WebSocket客户端，这样run方法可以立即返回
-        task = asyncio.create_task(self.websocket_manager.start())
-        # 返回任务，但不等待它完成
-        return task
+        # 直接运行并等待 WebSocket 循环，由 PlatformManager 统一托管任务
+        await self.websocket_manager.start()
 
     async def handle_mc_message(self, message: str):
         """处理从Minecraft服务器接收到的消息"""
@@ -270,29 +269,37 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
 
     async def send_to_bound_groups(self, group_ids: List[str], message: str):
         """发送消息到绑定的QQ群"""
-        from astrbot.core.message.message_event_result import MessageChain
-        from astrbot.core.platform.astr_message_event import MessageSesion
+        # 动态获取 QQ(aioCQHTTP) 适配器的实例 ID，用于构造 session
+        qq_adapter_id = None
+        if hasattr(self, 'context') and self.context and hasattr(self.context, 'platform_manager'):
+            try:
+                for p in self.context.platform_manager.get_insts():
+                    try:
+                        meta = p.meta()
+                        if meta and meta.name == "aiocqhttp":
+                            qq_adapter_id = meta.id
+                            break
+                    except Exception:
+                        continue
+            except Exception as e:
+                logger.warning(f"获取 QQ 适配器实例 ID 失败: {str(e)}")
+
+        if not qq_adapter_id:
+            logger.warning("未找到 aiocqhttp 适配器实例或其 ID，无法向QQ群发送消息。请确认已启用 QQ 个人号(aiocqhttp) 并查看其平台 ID。")
+            return
 
         for group_id in group_ids:
             try:
-                # 如果有context引用，使用context.send_message方法发送消息
                 if hasattr(self, 'context') and self.context:
-                    # 创建会话对象
-                    session = f"aiocqhttp:GroupMessage:{group_id}"
-
-                    # 创建消息链
+                    session = f"{qq_adapter_id}:GroupMessage:{group_id}"
                     message_chain = MessageChain().message(message)
-
-                    # 发送消息
                     try:
                         await self.context.send_message(session, message_chain)
-                        logger.debug(f"通过context.send_message成功发送消息到群 {group_id}")
-                        continue  # 发送成功，继续处理下一个群
+                        logger.info(f"已发送消息到群 {group_id}（平台ID={qq_adapter_id}）")
                     except Exception as e:
-                        logger.warning(f"通过context.send_message发送消息到群 {group_id} 失败: {str(e)}")
+                        logger.warning(f"发送消息到群 {group_id} 失败: {str(e)}")
                 else:
-                    logger.warning(f"context未设置，无法发送消息到群 {group_id}")
-                    
+                    logger.warning(f"context 未设置，无法发送消息到群 {group_id}")
             except Exception as e:
                 logger.error(f"发送消息到群 {group_id} 时出错: {str(e)}")
 

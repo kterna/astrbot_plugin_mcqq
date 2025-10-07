@@ -63,11 +63,10 @@ class CommandRegistry:
         player_data = data.get("player", {})
         player_name = player_data.get("nickname", player_data.get("display_name", "未知玩家"))
         
-        logger.info(f"{player_name} 执行命令: {message_text}")
-        
         # 遍历所有注册的命令处理器
         for command in self.commands:
             if command.matches(message_text):
+                logger.debug(f"{player_name} 执行命令: {message_text}")
                 try:
                     result = await command.execute(
                         message_text=message_text,

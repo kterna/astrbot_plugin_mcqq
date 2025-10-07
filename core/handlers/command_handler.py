@@ -219,7 +219,7 @@ qq群:
     /mc玩家列表 - 获取服务器在线玩家列表
     /投影 - 获取投影菜单帮助(依赖插件astrbot_plugin_litematic)
 mc:
-    #astr - 发起ai对话
+    #<内容> - 发起ai对话
     #qq - 向qq群发送消息
     #wiki 词条名称 - 查询Minecraft Wiki
 """
@@ -271,7 +271,12 @@ mc:
     
     async def handle_broadcast_toggle_command(self, event: AstrMessageEvent):
         """处理mc广播开关命令"""
-        return await self._decorator_require_admin(lambda e: self.plugin.broadcast_config_manager.toggle_broadcast()[1])(event)
+        return await self._decorator_require_admin(self._handle_broadcast_toggle_logic)(event)
+
+    async def _handle_broadcast_toggle_logic(self, event: AstrMessageEvent):
+        """广播开关命令的核心逻辑"""
+        _, message = self.plugin.broadcast_config_manager.toggle_broadcast()
+        return message
 
     async def handle_broadcast_clear_command(self, event: AstrMessageEvent):
         """处理mc广播清除命令"""
@@ -294,7 +299,7 @@ mc:
         adapter_id = command_content if command_content else None
         
         logger.info(f"用户 {event.get_sender_id()} 触发了测试广播")
-        await self.plugin.broadcast_scheduler.execute_hourly_broadcast(self.plugin.adapters)
+        await self.plugin.broadcast_scheduler.execute_hourly_broadcast(self.plugin.adapter_router.get_all_adapters())
         return "✅ 已触发测试广播"
 
     async def handle_custom_broadcast_command(self, event: AstrMessageEvent):

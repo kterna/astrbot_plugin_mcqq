@@ -27,7 +27,7 @@ class QQCommand(BaseCommand):
         player_name = player_data.get("nickname", player_data.get("display_name", "未知玩家"))
         
         # 获取要转发的消息内容
-        qq_message = message_text[3:].strip()  # 去掉 "#qq" 前缀
+        qq_message = self.remove_prefix(message_text)
         if not qq_message:
             await send_mc_message_callback("❌ 请提供要转发到QQ的消息内容")
             return True
@@ -51,4 +51,4 @@ class QQCommand(BaseCommand):
     
     def get_help_text(self) -> str:
         """获取帮助文本"""
-        return "#qq <消息> - 将消息转发到绑定的QQ群"
+        return "<唤醒词>qq <消息> - 将消息转发到绑定的QQ群"

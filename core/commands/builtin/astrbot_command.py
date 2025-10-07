@@ -28,13 +28,10 @@ class AstrBotCommand(BaseCommand):
                      adapter=None) -> bool:
         """执行AstrBot指令代理"""
         
-        # 去掉#号
-        message_text = message_text[1:]
-
         player_data = data.get("player", {})
         player_name = player_data.get("nickname", player_data.get("display_name", "未知玩家"))
-        
-        logger.info(f"玩家 {player_name} 执行AstrBot指令: {message_text}")
+
+        logger.debug(f"玩家 {player_name} 执行AstrBot指令: {message_text}")
         
         try:
             # 创建AstrBot命令事件
@@ -58,4 +55,4 @@ class AstrBotCommand(BaseCommand):
     
     def get_help_text(self) -> str:
         """获取帮助文本"""
-        return "# + AstrBot指令 - 执行AstrBot系统指令"
+        return "<唤醒词> + AstrBot指令 - 执行AstrBot系统指令"

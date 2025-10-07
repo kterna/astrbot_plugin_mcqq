@@ -1,6 +1,6 @@
 # filepath: e:\github desktop\AstrBot\data\plugins\astrbot_plugin_mcqq\core\handlers\message_handler.py
 import uuid
-from typing import Dict, Any, List, Callable, Awaitable
+from typing import Dict, Any, List, Callable, Awaitable, TYPE_CHECKING, Optional
 from astrbot.api.platform import AstrBotMessage, MessageMember, MessageType
 from astrbot.api.message_components import Plain
 from astrbot import logger
@@ -35,7 +35,34 @@ class MessageHandler:
         
         # 使用命令工厂创建命令注册表
         self.command_registry = CommandFactory.setup_command_registry(self)
-               
+
+    def _extract_command_text(self, message_text: str, adapter=None) -> Optional[str]:
+        """移除唤醒词并返回命令文本。未匹配唤醒词时返回 None。"""
+        if not message_text:
+            return None
+
+        raw_text = message_text.strip()
+        if not raw_text:
+            return None
+
+        wake_prefixes = []
+        if adapter and getattr(adapter, "context", None):
+            try:
+                config = adapter.context.get_config()
+                wake_prefixes = config.get("wake_prefix", []) or []
+            except Exception as e:
+                logger.debug(f"读取唤醒词配置失败: {e}")
+
+        for prefix in wake_prefixes:
+            if prefix and raw_text.startswith(prefix):
+                return raw_text[len(prefix):].lstrip()
+
+        # 兼容旧配置，默认识别单个 '#' 作为唤醒词
+        if raw_text.startswith("#"):
+            return raw_text[1:].lstrip()
+
+        return None
+
     def get_server_class(self, server_type: str):
         """根据服务器类型获取对应的服务器类型对象"""
         server_classes = {
@@ -77,24 +104,61 @@ class MessageHandler:
         player_name = player_data.get("nickname", player_data.get("display_name", "未知玩家"))
         message_text = data.get("message", "")
 
+        # 优先执行插件内注册的命令，未命中再交由 AstrBot 处理
+        try:
+            command_text = self._extract_command_text(message_text, adapter)
+            if self.command_registry and command_text is not None:
+                handled = await self.command_registry.handle_command(
+                    message_text=command_text,
+                    data=data,
+                    server_class=server_class,
+                    bound_groups=bound_groups,
+                    send_to_groups_callback=send_to_groups_callback,
+                    send_mc_message_callback=send_mc_message_callback,
+                    commit_event_callback=commit_event_callback,
+                    platform_meta=platform_meta,
+                    adapter=adapter
+                )
+                if handled:
+                    return True
+        except Exception as e:
+            logger.error(f"执行 Minecraft 专用命令时出错: {e}")
+
         logger.info(f"{player_name}: {message_text}")
 
-        # 如果不是以#开头的消息，直接返回False
-        if not message_text.startswith("#"):
-            return False
-
-        # 委托给命令注册表处理
-        return await self.command_registry.handle_command(
-            message_text=message_text,
-            data=data,
-            server_class=server_class,
-            bound_groups=bound_groups,
-            send_to_groups_callback=send_to_groups_callback,
-            send_mc_message_callback=send_mc_message_callback,
-            commit_event_callback=commit_event_callback,
-            platform_meta=platform_meta,
-            adapter=adapter
+        abm = AstrBotMessage()
+        abm.type = MessageType.GROUP_MESSAGE
+        abm.message_str = message_text
+        abm.sender = MessageMember(
+            user_id=f"minecraft_{player_name}",
+            nickname=player_name
         )
+        abm.message = [Plain(text=message_text)]
+        abm.raw_message = {"content": message_text}
+        abm.self_id = f"minecraft_{self.server_name}"
+        abm.session_id = f"minecraft_{self.server_name}"
+        abm.message_id = str(uuid.uuid4())
+
+        # 创建消息事件
+        message_event = MinecraftMessageEvent(
+            message_str=message_text,
+            message_obj=abm,
+            platform_meta=platform_meta,
+            session_id=f"minecraft_{self.server_name}",
+            adapter=adapter,
+            message_type=MessageType.GROUP_MESSAGE
+        )
+
+        # 设置回调函数，以便其他插件的响应可以发送回Minecraft
+        async def on_response(response_message):
+            if response_message and response_message.strip():
+                await send_mc_message_callback(response_message)
+
+        message_event.on_response = on_response
+
+        commit_event_callback(message_event)
+
+        return True
     
     async def create_astrbot_command_event(self, 
                                          command_text: str, 
@@ -105,7 +169,7 @@ class MessageHandler:
         """创建AstrBot命令事件"""
         # 创建一个虚拟的消息事件，用于执行指令
         abm = AstrBotMessage()
-        abm.type = MessageType.FRIEND_MESSAGE
+        abm.type = MessageType.GROUP_MESSAGE
         abm.message_str = command_text
         abm.sender = MessageMember(
             user_id=f"minecraft_{player_name}",
@@ -114,7 +178,7 @@ class MessageHandler:
         abm.message = [Plain(text=command_text)]
         abm.raw_message = {"content": command_text}
         abm.self_id = f"minecraft_{self.server_name}"
-        abm.session_id = f"minecraft_{player_name}"
+        abm.session_id = f"minecraft_{self.server_name}"
         abm.message_id = str(uuid.uuid4())
 
         # 创建消息事件
@@ -122,9 +186,14 @@ class MessageHandler:
             message_str=command_text,
             message_obj=abm,
             platform_meta=platform_meta,
-            session_id=f"minecraft_{player_name}",
-            adapter=adapter
+            session_id=f"minecraft_{self.server_name}",
+            adapter=adapter,
+            message_type=MessageType.GROUP_MESSAGE  # 显式指定消息类型
         )
+
+        # 标记该事件已通过唤醒词判定，确保 AstrBot 指令过滤器生效
+        message_event.is_at_or_wake_command = True
+        message_event.is_wake = True
 
         # 设置回调函数，将AstrBot的响应发送回Minecraft
         async def on_response(response_message):
