@@ -155,13 +155,11 @@ class CommandHandler:
     async def handle_say_command(self, event: AstrMessageEvent):
         """处理mcsay命令，支持图片"""
         message = event.message_str.replace("mcsay", "", 1).strip()
-        logger.info(event.message_obj)
         images = []
         for item in event.get_messages():
             if item.__class__.__name__ == "Image":
                 if hasattr(item, 'url') and item.url:
                     images.append(str(item.url))
-        logger.info(images)
         if message == "" and not images:
             return "❓ 请提供要发送的消息内容，例如：/mcsay 大家好"
 
