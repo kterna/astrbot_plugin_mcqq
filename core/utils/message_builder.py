@@ -121,11 +121,13 @@ class MessageBuilder:
         bold: bool = False,
         click_url: str = "",
         hover_text: str = "",
+        images: List[str] = None,
         click_action: str = "OPEN_URL"
     ) -> Dict[str, Any]:
         """创建富文本广播消息"""
         # 创建基础文本组件
-        component = MessageBuilder.create_text_event(text, color, bold)
+        components = [MessageBuilder.create_text_event(text, color, bold)]
+        component = components[0]
         
         # 添加悬浮事件
         if hover_text:
@@ -134,9 +136,16 @@ class MessageBuilder:
         # 添加点击事件
         if click_url:
             MessageBuilder.add_click_event(component, click_url, click_action)
-        
+        # 添加图片事件
+        if images:
+            for image_url in images:
+                if not image_url:
+                    continue
+                image_component = MessageBuilder.create_text_event("[图片]["f{image_url}"]")
+                MessageBuilder.add_click_event(image_component, image_url, "OPEN_URL")
+                components.append(image_component)
         # 创建广播消息
-        return MessageBuilder.create_broadcast_message([component])
+        return MessageBuilder.create_broadcast_message(components)
     
     @staticmethod
     def create_admin_announcement(

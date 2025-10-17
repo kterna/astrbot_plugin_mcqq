@@ -25,8 +25,8 @@ class MessageSender:
         except Exception as e:
             logger.error(f"发送广播消息到Minecraft时出错: {str(e)}")
             return False
-    
-    async def send_rich_message(self, text: str, click_url: str, hover_text: str, color: str = "#E6E6FA") -> bool:
+
+    async def send_rich_message(self, text: str, click_url: str, hover_text: str, images: List[str], color: str = "#E6E6FA") -> bool:
         """发送富文本消息到Minecraft服务器"""
         try:
             # 使用MessageBuilder创建富文本广播消息
@@ -35,6 +35,7 @@ class MessageSender:
                 color=color,
                 click_url=click_url,
                 hover_text=hover_text,
+                images=images,
                 click_action="OPEN_URL"
             )
             

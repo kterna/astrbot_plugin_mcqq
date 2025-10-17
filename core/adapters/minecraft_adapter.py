@@ -311,9 +311,9 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
         """发送消息到Minecraft服务器"""
         return await self.message_sender.send_broadcast_message(message, sender)
 
-    async def send_rich_message(self, text: str, click_url: str="", hover_text: str="", color: str = "#E6E6FA"):
+    async def send_rich_message(self, text: str, click_url: str="", hover_text: str="", images: List[str]=None, color: str = "#E6E6FA"):
         """发送富文本消息到Minecraft服务器"""
-        return await self.message_sender.send_rich_message(text, click_url, hover_text, color)
+        return await self.message_sender.send_rich_message(text, click_url, hover_text, images, color)
 
     async def send_private_message(self, uuid: str, components: List[Dict[str, Any]]):
         """发送私聊消息到指定玩家"""

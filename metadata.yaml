@@ -1,6 +1,6 @@
 name: mcqq
 desc: 连接Minecraft服务器与QQ群聊的插件，通过鹊桥模组实现消息互通
 help: 通过鹊桥模组实现Minecraft服务器与QQ群聊的消息互通，支持玩家聊天、上下线通知等功能转发
-version: v1.8.1
+version: v1.8.2
 author: kterna
 repo: https://github.com/kterna/astrbot_plugin_mcqq

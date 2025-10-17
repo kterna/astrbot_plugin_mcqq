@@ -114,7 +114,7 @@ class AdapterRouter:
                 else:
                     success_count += 1
 
-    async def broadcast_message(self, message: str, sender: str = None, exclude_adapter_id: str = None):
+    async def broadcast_message(self, message: str, sender: str = None, images: List[str] = None, exclude_adapter_id: str = None):
         """向所有适配器广播消息（通常用于管理员命令）"""
         tasks = []
         for adapter_id, adapter in self.adapters.items():
@@ -122,7 +122,7 @@ class AdapterRouter:
                 continue
                 
             if await adapter.is_connected():
-                task = adapter.send_rich_message(message)
+                task = adapter.send_rich_message(message, hover_text=sender, images=images)
                 tasks.append(task)
                 
         if tasks:
