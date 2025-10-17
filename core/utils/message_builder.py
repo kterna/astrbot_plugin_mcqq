@@ -141,7 +141,7 @@ class MessageBuilder:
             for image_url in images:
                 if not image_url:
                     continue
-                image_component = MessageBuilder.create_text_event("[图片]["f{image_url}"]")
+                image_component = MessageBuilder.create_text_event("[图片][f{image_url}]")
                 MessageBuilder.add_click_event(image_component, image_url, "OPEN_URL")
                 components.append(image_component)
         # 创建广播消息
