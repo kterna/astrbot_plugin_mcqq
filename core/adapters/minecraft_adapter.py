@@ -51,13 +51,7 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
     def __init__(self, platform_config: dict, platform_settings: dict, event_queue: asyncio.Queue) -> None:
         super().__init__(platform_config, platform_settings, event_queue)
         
-        # 上下文引用，用于发送消息
-        self.context = None
-        
-        # 插件实例引用，用于访问广播管理器和路由器
-        self.plugin_instance = None
-        
-        # 路由器引用
+        # 路由器引用（用于适配器间通信）
         self.router = None
 
         # 从配置中获取WebSocket连接信息
@@ -124,6 +118,11 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
 
     async def run(self) -> Awaitable[Any]:
         """启动WebSocket客户端，维持与鹊桥模组的连接"""
+        # 注册到路由器（如果已设置）
+        if hasattr(self, 'router') and self.router:
+            self.router.register_adapter(self)
+            logger.info(f"适配器 {self.adapter_id} 已自动注册到路由器")
+        
         # 直接运行并等待 WebSocket 循环，由 PlatformManager 统一托管任务
         await self.websocket_manager.start()
 

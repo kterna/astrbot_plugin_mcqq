@@ -7,6 +7,7 @@ from astrbot.api.message_components import Plain
 from astrbot import logger
 from astrbot.core.platform.manager import PlatformManager
 from astrbot.core.star.star_tools import StarTools
+from astrbot.core.star.register.star_handler import register_on_platform_loaded
 
 # 常量定义
 PLUGIN_DATA_DIR = "mcqq"
@@ -47,41 +48,30 @@ class MCQQPlugin(Star):
         # 初始化命令处理器
         self.command_handler = CommandHandler(self)
 
-        # 初始化平台适配器
-        asyncio.create_task(self.initialize_adapter())
         # 初始化RCON连接 (将从适配器配置读取设置)
         asyncio.create_task(self.initialize_rcon())
         # 启动整点广播任务
         asyncio.create_task(self.start_hourly_broadcast())
 
+    @register_on_platform_loaded()
     async def initialize_adapter(self):
-        """初始化Minecraft平台适配器"""
-        # 等待平台管理器初始化完成
-        await asyncio.sleep(2)
+        """初始化Minecraft平台适配器 - 监听平台加载完成钩子"""
+        logger.info("检测到平台加载完成事件，开始初始化Minecraft适配器...")
 
-        # 获取平台管理器
-        for attr_name in dir(self.context):
-            attr = getattr(self.context, attr_name)
-            if isinstance(attr, PlatformManager):
-                self.platform_manager = attr
-                break
-
+        # 从上下文中直接获取平台管理器
+        self.platform_manager = getattr(self.context, 'platform_manager', None)
         if not self.platform_manager:
             logger.error("无法获取平台管理器，Minecraft平台适配器将无法正常工作")
             return
 
-        # 查找所有Minecraft平台适配器
+        # 查找所有Minecraft平台适配器并设置路由器引用
         minecraft_adapters = []
         for platform in self.platform_manager.platform_insts:
             if isinstance(platform, MinecraftPlatformAdapter):
                 minecraft_adapters.append(platform)
                 logger.info(f"找到Minecraft平台适配器: {platform.adapter_id} ({platform.server_name})")
 
-                # 设置上下文引用，以便适配器可以使用context.send_message方法
-                platform.context = self.context
-                # 设置插件实例引用
-                platform.plugin_instance = self
-                # 设置路由器引用
+                # 设置路由器引用（用于适配器间消息转发）
                 platform.router = self.adapter_router
                 logger.debug(f"为适配器 {platform.adapter_id} 设置路由器引用")
                 
