@@ -6,6 +6,10 @@
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/kterna/astrbot_plugin_mcqq)
 
+## **更新必看**
+
+- 从 AstrBot **v4.8.0+** 开始，请使用本插件 **v1.8.4 及以上版本**，以适配新的平台构造函数签名。
+
 ## 核心功能
 
 - **多服务器互通**: 将多个 MC 服务器连接在一起，实现跨服聊天、玩家事件（加入/退出/死亡）同步。
@@ -191,6 +195,7 @@ websocket:
 
 ## 更新日志
 
+- **v1.8.4**: 兼容astrbot v4.8.0+版本
 - **v1.8.3**: 优化初始化平台适配器
 - **v1.8.2**: 增加mcsay对qq图片的支持
 - **v1.8.1**: 修复mcsay发送数据格式错误问题

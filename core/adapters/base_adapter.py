@@ -10,7 +10,8 @@ class BaseMinecraftAdapter(Platform, ABC):
     """Minecraft平台适配器基类"""
     
     def __init__(self, platform_config: dict, platform_settings: dict, event_queue: asyncio.Queue):
-        super().__init__(event_queue)
+        # Platform signature now expects config first
+        super().__init__(platform_config, event_queue)
         self.config = platform_config
         self.settings = platform_settings
         self.adapter_id = self.config.get("adapter_id", self.__class__.__name__)
