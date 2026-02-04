@@ -16,10 +16,12 @@
 - **MC -> QQ**:
   - 玩家**加入/退出/死亡**事件转发到绑定的 QQ 群。
   - 在游戏内使用 `<唤醒词>qq <消息>` 将消息发送到 QQ 群。
+  - **聊天全量同步**（可配置）。
   - 在游戏内使用 `<唤醒词><指令>` 调用 AstrBot 的各项功能（包括 AI 对话）。
 - **QQ -> MC**:
   - 将绑定的 QQ 群消息转发到 MC 服务器。
   - 使用 `<唤醒词>mcsay <消息>` 向所有连接的服务器发送广播。
+  - **聊天全量同步**（可配置）。
   - 提供丰富的管理命令（RCON, 广播, 绑定等）。
 - **高度可配置**: 支持假人过滤、自定义消息前缀、丰富的广播设置等。
 
@@ -41,6 +43,7 @@
 - **RCON 限制**: RCON 功能目前仅对**第一个**配置的服务器适配器生效。
 - **配置重载**: 大部分配置修改之后需要完全重启astrbot后才能生效，若出现“为什么修改之后连不上”“修改之后无法触发指令”等情况请先重启astrbot试试。
 - **版本更新**: 插件更新后，若适配器配置页面未出现新增的配置项，请**删除旧的适配器并重新创建**。
+- **聊天全量同步**: 默认关闭；启用后 QQ -> MC 会添加前缀并在 MC -> QQ 同步中进行回环过滤，可通过配置调整。
 - **互通前提**: 多服务器互通功能需要所有服务器都安装[鹊桥模组](https://www.curseforge.com/minecraft/mc-mods/queqiao)或其 MCDR 移植版。
 - **MCDR 特有功能**: `<唤醒词>mc玩家列表` 等部分高级功能仅在使用[鹊桥的 MCDR 移植版](https://github.com/kterna/queqiao_mcdr)时可用。
 
@@ -89,6 +92,11 @@ websocket:
 - `Authorization`: 访问令牌，如果鹊桥配置了 `access_token` 则必须填写。
 - `enable_join_quit_messages`: (true/false) 是否转发玩家加入/退出消息。
 - `qq_message_prefix`: 转发到 QQ 消息的前缀，例如 `[MC] `。
+- `sync_chat_mc_to_qq`: (true/false) 是否将 MC 普通聊天同步到绑定 QQ 群。
+- `sync_chat_qq_to_mc`: (true/false) 是否将 QQ 群普通聊天同步到 MC 服务器。
+- `qq_to_mc_prefix`: QQ -> MC 消息前缀，例如 `[QQ]`，用于标识来源与回环过滤。
+- `qq_to_mc_filter_commands`: (true/false) 是否过滤 QQ 侧命令消息（`/` 或唤醒词开头）。
+- `qq_to_mc_image_mode`: QQ -> MC 图片处理模式（`link`/`placeholder`/`skip`）。
 - `max_reconnect_retries`: 连接断开后最大重试次数（默认 5）。
 - `reconnect_interval`: 重连间隔秒数（默认 3）。
 - `filter_bots`: (true/false) 是否开启假人消息过滤。

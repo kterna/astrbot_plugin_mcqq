@@ -36,6 +36,11 @@ from ..handlers.message_handler import MessageHandler
         "Authorization": "",
         "enable_join_quit_messages": True,
         "qq_message_prefix": "[MC]",
+        "sync_chat_mc_to_qq": False,
+        "sync_chat_qq_to_mc": False,
+        "qq_to_mc_prefix": "[QQ]",
+        "qq_to_mc_filter_commands": True,
+        "qq_to_mc_image_mode": "link",
         "max_reconnect_retries": 5,
         "reconnect_interval": 3,
         "filter_bots": True,
@@ -60,6 +65,11 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
         self.Authorization = self.config.get("Authorization", "")
         self.enable_join_quit = self.config.get("enable_join_quit_messages", True)
         self.qq_message_prefix = self.config.get("qq_message_prefix", "[MC]")
+        self.sync_chat_mc_to_qq = self.config.get("sync_chat_mc_to_qq", False)
+        self.sync_chat_qq_to_mc = self.config.get("sync_chat_qq_to_mc", False)
+        self.qq_to_mc_prefix = self.config.get("qq_to_mc_prefix", "[QQ]")
+        self.qq_to_mc_filter_commands = self.config.get("qq_to_mc_filter_commands", True)
+        self.qq_to_mc_image_mode = self.config.get("qq_to_mc_image_mode", "link")
         
         # 从配置中获取重连参数
         self.reconnect_interval = self.config.get("reconnect_interval", 3)  # 重连间隔(秒)
@@ -80,6 +90,8 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
             qq_message_prefix=self.qq_message_prefix,
             enable_join_quit=self.enable_join_quit,
             bot_filter=self.bot_filter,
+            sync_chat_mc_to_qq=self.sync_chat_mc_to_qq,
+            qq_to_mc_prefix=self.qq_to_mc_prefix,
         )
 
         # 加载绑定关系
