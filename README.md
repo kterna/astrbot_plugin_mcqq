@@ -44,7 +44,6 @@
 - **配置重载**: 大部分配置修改之后需要完全重启astrbot后才能生效，若出现“为什么修改之后连不上”“修改之后无法触发指令”等情况请先重启astrbot试试。
 - **版本更新**: 插件更新后，若适配器配置页面未出现新增的配置项，请**删除旧的适配器并重新创建**。
 - **聊天全量同步**: 默认关闭；启用后 QQ -> MC 会添加前缀并在 MC -> QQ 同步中进行回环过滤，可通过配置调整。
-- **共享会话**: `share_session_across_mc` 开启后，多个 MC 适配器会共用同一个 LLM 会话上下文。
 - **互通前提**: 多服务器互通功能需要所有服务器都安装[鹊桥模组](https://www.curseforge.com/minecraft/mc-mods/queqiao)或其 MCDR 移植版。
 - **MCDR 特有功能**: `<唤醒词>mc玩家列表` 等部分高级功能仅在使用[鹊桥的 MCDR 移植版](https://github.com/kterna/queqiao_mcdr)时可用。
 
@@ -98,7 +97,6 @@ websocket:
 - `qq_to_mc_prefix`: QQ -> MC 消息前缀，例如 `[QQ]`，用于标识来源与回环过滤。
 - `qq_to_mc_filter_commands`: (true/false) 是否过滤 QQ 侧命令消息（`/` 或唤醒词开头）。
 - `qq_to_mc_image_mode`: QQ -> MC 图片处理模式（`link`/`placeholder`/`skip`）。
-- `share_session_across_mc`: (true/false) 是否让所有 Minecraft 适配器共用一个会话上下文。
 - `max_reconnect_retries`: 连接断开后最大重试次数（默认 5）。
 - `reconnect_interval`: 重连间隔秒数（默认 3）。
 - `filter_bots`: (true/false) 是否开启假人消息过滤。

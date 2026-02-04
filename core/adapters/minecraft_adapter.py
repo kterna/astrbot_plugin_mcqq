@@ -54,7 +54,6 @@ _cleanup_previous_registration()
         "qq_to_mc_prefix": "[QQ]",
         "qq_to_mc_filter_commands": True,
         "qq_to_mc_image_mode": "link",
-        "share_session_across_mc": False,
         "max_reconnect_retries": 5,
         "reconnect_interval": 3,
         "filter_bots": True,
@@ -85,7 +84,6 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
         self.qq_to_mc_prefix = self.config.get("qq_to_mc_prefix", "[QQ]")
         self.qq_to_mc_filter_commands = self.config.get("qq_to_mc_filter_commands", True)
         self.qq_to_mc_image_mode = self.config.get("qq_to_mc_image_mode", "link")
-        self.share_session_across_mc = self.config.get("share_session_across_mc", False)
         
         # 从配置中获取重连参数
         self.reconnect_interval = self.config.get("reconnect_interval", 3)  # 重连间隔(秒)
@@ -201,7 +199,12 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
     async def _handle_chat_event(self, data, server_class, bound_groups):
         """处理聊天消息事件"""
         player_data = data.get("player", "")
-        player_name = player_data.get("display_name", "")
+        player_name = (
+            player_data.get("display_name")
+            or player_data.get("nickname")
+            or player_data.get("name")
+            or ""
+        )
         message_content = data.get("message", "")
         
         logger.debug(f"[{self.adapter_id}] 收到聊天消息: 玩家={player_name}, 消息={message_content}")
@@ -234,7 +237,12 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
     async def _handle_join_event(self, data, server_class, bound_groups):
         """处理玩家加入事件"""
         player_data = data.get("player", "")
-        player_name = player_data.get("display_name", "")
+        player_name = (
+            player_data.get("display_name")
+            or player_data.get("nickname")
+            or player_data.get("name")
+            or ""
+        )
             
         logger.debug(f"[{self.adapter_id}] 收到玩家加入: {player_name}")
         
@@ -259,7 +267,12 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
     async def _handle_quit_event(self, data, server_class, bound_groups):
         """处理玩家退出事件"""
         player_data = data.get("player", "")
-        player_name = player_data.get("display_name", "")
+        player_name = (
+            player_data.get("display_name")
+            or player_data.get("nickname")
+            or player_data.get("name")
+            or ""
+        )
 
         logger.debug(f"[{self.adapter_id}] 收到玩家退出: {player_name}")
             

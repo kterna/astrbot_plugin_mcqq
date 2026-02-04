@@ -272,18 +272,18 @@ class MCQQPlugin(Star):
             if image_urls and image_mode == "skip":
                 return
 
-            def format_text(include_placeholders: bool) -> str:
+            def format_text(include_placeholders: bool, allow_image_fallback: bool = True) -> str:
                 content = message_text
                 if include_placeholders and image_urls:
                     placeholders = " [图片]" * len(image_urls)
                     content = f"{content}{placeholders}" if content else placeholders.strip()
-                if not content and image_urls:
+                if allow_image_fallback and not content and image_urls:
                     content = "[图片]"
                 head = f"{sender_name}: " if not prefix else f"{prefix} {sender_name}: "
                 return f"{head}{content}".strip()
 
             if image_urls and image_mode == "link":
-                text = format_text(include_placeholders=False)
+                text = format_text(include_placeholders=False, allow_image_fallback=False)
                 await adapter.send_rich_message(text, images=image_urls)
                 return
 
