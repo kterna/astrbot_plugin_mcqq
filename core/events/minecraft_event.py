@@ -29,6 +29,13 @@ class MinecraftMessageEvent(AstrMessageEvent):
         self.adapter = adapter
         self.on_response: Optional[Callable[[str], Awaitable[None]]] = None
 
+        if adapter and getattr(adapter, "share_session_across_mc", False):
+            shared_session_id = getattr(adapter, "mc_shared_session_id", "mc_shared")
+            try:
+                self.unified_msg_origin = f"minecraft:{message_type.value}:{shared_session_id}"
+            except Exception as e:
+                logger.error(f"设置MC共享会话失败: {e}")
+
     async def send(self, message: MessageChain):
         """发送消息到Minecraft服务器"""
         try:

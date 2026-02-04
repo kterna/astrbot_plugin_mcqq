@@ -15,6 +15,7 @@ from astrbot.core.platform.register import register_platform_adapter
 from astrbot.core.star.star_tools import StarTools
 from astrbot import logger
 from astrbot.core.message.message_event_result import MessageChain
+from astrbot.core.platform.register import platform_cls_map, platform_registry
 
 from .base_adapter import BaseMinecraftAdapter
 from ..events.minecraft_event import MinecraftMessageEvent
@@ -25,10 +26,21 @@ from ..managers.message_sender import MessageSender
 from ..utils.bot_filter import BotFilter
 from ..handlers.message_handler import MessageHandler
 
+
+def _cleanup_previous_registration():
+    """确保热重载不会因残留的适配器注册而失败。"""
+    if "minecraft" in platform_cls_map:
+        del platform_cls_map["minecraft"]
+    if platform_registry:
+        platform_registry[:] = [p for p in platform_registry if p.name != "minecraft"]
+
+
+_cleanup_previous_registration()
+
 @register_platform_adapter(
     "minecraft", 
     "Minecraft服务器适配器", 
-    # logo_path="minecraft.png",  # 新增：指定logo文件路径
+    logo_path="minecraft.png",  # 新增：指定logo文件路径
     default_config_tmpl={
         "adapter_id": "minecraft_server_1",  # 添加适配器ID配置
         "ws_url": "ws://127.0.0.1:8080/minecraft/ws",
@@ -41,6 +53,7 @@ from ..handlers.message_handler import MessageHandler
         "qq_to_mc_prefix": "[QQ]",
         "qq_to_mc_filter_commands": True,
         "qq_to_mc_image_mode": "link",
+        "share_session_across_mc": False,
         "max_reconnect_retries": 5,
         "reconnect_interval": 3,
         "filter_bots": True,
@@ -70,6 +83,7 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
         self.qq_to_mc_prefix = self.config.get("qq_to_mc_prefix", "[QQ]")
         self.qq_to_mc_filter_commands = self.config.get("qq_to_mc_filter_commands", True)
         self.qq_to_mc_image_mode = self.config.get("qq_to_mc_image_mode", "link")
+        self.share_session_across_mc = self.config.get("share_session_across_mc", False)
         
         # 从配置中获取重连参数
         self.reconnect_interval = self.config.get("reconnect_interval", 3)  # 重连间隔(秒)
