@@ -103,3 +103,42 @@ class McdrServer:
             "dimension": "dimension",
             "coordinate": "coordinate",
         }
+
+
+class QueqiaoV2:
+    """Queqiao V2 Minecraft 服务器事件配置"""
+    # 原版端 仅支持 nickname
+    # Spigot：不支持 max_health
+    # Paper：不支持 max_health
+    # Folia：
+    #   不支持 max_health
+    #   可能缺失 address
+    # Velocity 仅支持 nickname、uuid、is_op
+    # Forge
+    #   1.7.10：缺少 address
+    
+    def __init__(self) -> None:
+        self.server_type: str = "" # Queqiao V2 服务器类型不区分具体类型
+        self.chat: str = "PlayerChatEvent"
+        self.join: str = "PlayerJoinEvent"
+        self.quit: str = "PlayerQuitEvent"
+        self.death: str = "PlayerDeathEvent"
+        self.player_command: str = "PlayerCommandEvent"
+        self.achievent: str = "PlayerAchievementEvent"
+        
+        self.player: Dict[str, str] = {
+            "nickname": "nickname",
+            "uuid": "uuid",
+            "is_op": "is_op",
+            "dimension": "dimension",
+            "coordinate": "coordinate",
+            "health": "health", # 当前生命值
+            "max_health": "max_health", # 最大生命值
+            "experience_level": "experience_level", # 经验等级
+            "experience_progress": "experience_progress", # 当前经验进度（0.0-1.0）
+            "total_experience": "total_experience", # 总经验值
+            "walk_speed": "walk_speed",
+            "block_x": "x",
+            "block_y": "y",
+            "block_z": "z",
+        }

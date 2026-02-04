@@ -19,7 +19,7 @@ from astrbot.core.platform.register import platform_cls_map, platform_registry
 
 from .base_adapter import BaseMinecraftAdapter
 from ..events.minecraft_event import MinecraftMessageEvent
-from ..config.server_types import Vanilla, Spigot, Fabric, Forge, Neoforge
+from ..config.server_types import Vanilla, Spigot, Fabric, Forge, Neoforge, QueqiaoV2
 from ..managers.group_binding_manager import GroupBindingManager
 from ..managers.websocket_manager import WebSocketManager
 from ..managers.message_sender import MessageSender
@@ -46,6 +46,7 @@ _cleanup_previous_registration()
         "ws_url": "ws://127.0.0.1:8080/minecraft/ws",
         "server_name": "Server",
         "Authorization": "",
+        "queqiao_v2": True,
         "enable_join_quit_messages": True,
         "qq_message_prefix": "[MC]",
         "sync_chat_mc_to_qq": False,
@@ -76,6 +77,7 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
         self.ws_url = self.config.get("ws_url", "ws://127.0.0.1:8080/minecraft/ws")
         self._server_name = self.config.get("server_name", "Server")
         self.Authorization = self.config.get("Authorization", "")
+        self.queqiao_v2 = self.config.get("queqiao_v2", True)
         self.enable_join_quit = self.config.get("enable_join_quit_messages", True)
         self.qq_message_prefix = self.config.get("qq_message_prefix", "[MC]")
         self.sync_chat_mc_to_qq = self.config.get("sync_chat_mc_to_qq", False)
@@ -164,7 +166,10 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
             server_name = data.get("server_name", self._server_name)
 
             # 根据server_type获取对应的服务器类型对象
-            server_class = self.message_handler.get_server_class(server_type)
+            if self.queqiao_v2:
+                server_class = QueqiaoV2()
+            else:
+                server_class = self.message_handler.get_server_class(server_type)
 
             # 获取关联的群聊列表
             bound_groups = self.binding_manager.get_bound_groups(server_name)
