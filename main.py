@@ -311,24 +311,6 @@ class MCQQPlugin(Star):
         
         # 取消整点广播任务
         self.broadcast_scheduler.stop()
-        
-        # 清理平台适配器注册信息
-        try:
-            from astrbot.core.platform.register import platform_cls_map, platform_registry
-            logger.debug(f"清理前 platform_cls_map: {list(platform_cls_map.keys())}")
-            logger.debug(f"清理前 platform_registry: {[p.name for p in platform_registry]}")
-            
-            if "minecraft" in platform_cls_map:
-                del platform_cls_map["minecraft"]
-            for i, platform_metadata in enumerate(platform_registry):
-                if platform_metadata.name == "minecraft":
-                    del platform_registry[i]
-                    break
-                    
-            logger.debug(f"清理后 platform_cls_map: {list(platform_cls_map.keys())}")
-            logger.debug(f"清理后 platform_registry: {[p.name for p in platform_registry]}")
-        except Exception as e:
-            logger.error(f"清理 Minecraft 平台适配器注册信息失败: {str(e)}")
 
     async def get_minecraft_adapter(self, server_name: Optional[str] = None) -> Optional[MinecraftPlatformAdapter]:
         """获取指定的Minecraft平台适配器，如果未指定则获取主适配器"""

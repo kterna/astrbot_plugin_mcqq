@@ -334,25 +334,6 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
         """终止平台适配器"""
         # 关闭 websocket 连接
         await self.websocket_manager.close()
-        
-        # 清理平台适配器注册信息
-        try:
-            from astrbot.core.platform.register import platform_cls_map, platform_registry
-            logger.debug(f"清理前 platform_cls_map: {list(platform_cls_map.keys())}")
-            logger.debug(f"清理前 platform_registry: {[p.name for p in platform_registry]}")
-            
-            if "minecraft" in platform_cls_map:
-                del platform_cls_map["minecraft"]
-            # 从注册表中移除
-            for i, platform_metadata in enumerate(platform_registry):
-                if platform_metadata.name == "minecraft":
-                    del platform_registry[i]
-                    break
-                    
-            logger.debug(f"清理后 platform_cls_map: {list(platform_cls_map.keys())}")
-            logger.debug(f"清理后 platform_registry: {[p.name for p in platform_registry]}")
-        except Exception as e:
-            logger.error(f"清理 Minecraft 平台适配器注册信息失败: {str(e)}")
             
         logger.info("Minecraft平台适配器已被优雅地关闭")
 
