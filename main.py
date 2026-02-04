@@ -71,6 +71,10 @@ class MCQQPlugin(Star):
                 minecraft_adapters.append(platform)
                 logger.info(f"找到Minecraft平台适配器: {platform.adapter_id} ({platform.server_name})")
 
+                # 注入插件上下文，便于适配器主动发送消息
+                platform.context = self.context
+                logger.debug(f"为适配器 {platform.adapter_id} 注入 context")
+
                 # 设置路由器引用（用于适配器间消息转发）
                 platform.router = self.adapter_router
                 logger.debug(f"为适配器 {platform.adapter_id} 设置路由器引用")
