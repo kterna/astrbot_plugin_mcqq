@@ -78,7 +78,7 @@ class BroadcastSender:
             
             
             # 创建广播消息
-            broadcast_msg = MessageBuilder.create_broadcast_message([component])
+            broadcast_msg = MessageBuilder.create_broadcast_message([component], wrap_components=False)
             
             # 记录日志
             MessageBuilder.log_message(broadcast_msg, f"第 {i+1}/{total_components} 条广播消息")

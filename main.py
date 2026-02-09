@@ -71,6 +71,10 @@ class MCQQPlugin(Star):
                 minecraft_adapters.append(platform)
                 logger.info(f"找到Minecraft平台适配器: {platform.adapter_id} ({platform.server_name})")
 
+                # 注入插件上下文，便于适配器主动发送消息
+                platform.context = self.context
+                logger.debug(f"为适配器 {platform.adapter_id} 注入 context")
+
                 # 设置路由器引用（用于适配器间消息转发）
                 platform.router = self.adapter_router
                 logger.debug(f"为适配器 {platform.adapter_id} 设置路由器引用")
@@ -201,6 +205,98 @@ class MCQQPlugin(Star):
         async for result in self._handle_command(event, self.command_handler.handle_player_list_command):
             yield result
 
+    @filter.platform_adapter_type(filter.PlatformAdapterType.AIOCQHTTP)
+    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
+    async def on_qq_group_message(self, event: AstrMessageEvent):
+        """同步QQ群消息到Minecraft服务器（可配置）"""
+        if not self.adapter_router:
+            return
+
+        group_id = event.get_group_id()
+        if not group_id:
+            return
+
+        # 过滤机器人自身消息，避免回环
+        if event.get_sender_id() == event.get_self_id():
+            return
+
+        adapters = [
+            adapter for adapter in self.adapter_router.get_all_adapters()
+            if adapter.is_group_bound(group_id)
+        ]
+        if not adapters:
+            return
+
+        message_text = (event.message_str or "").strip()
+
+        image_urls = []
+        for item in event.get_messages():
+            if item.__class__.__name__ == "Image":
+                url = getattr(item, "url", None)
+                if url:
+                    image_urls.append(str(url))
+
+        if not message_text and not image_urls:
+            return
+
+        wake_prefixes = []
+        try:
+            config = self.context.get_config(umo=event.unified_msg_origin)
+            wake_prefixes = config.get("wake_prefix", []) or []
+        except Exception as e:
+            logger.debug(f"读取唤醒词配置失败: {e}")
+
+        def is_command(text: str) -> bool:
+            if not text:
+                return False
+            if text.startswith("/"):
+                return True
+            for prefix in wake_prefixes:
+                if prefix and text.startswith(prefix):
+                    return True
+            return False
+
+        sender_name = event.get_sender_name() or event.get_sender_id()
+
+        async def build_and_send(adapter):
+            if not adapter.sync_chat_qq_to_mc:
+                return
+            if adapter.qq_to_mc_filter_commands and is_command(message_text):
+                return
+            if not await adapter.is_connected():
+                return
+
+            prefix = (adapter.qq_to_mc_prefix or "").strip()
+            image_mode = (adapter.qq_to_mc_image_mode or "link").lower()
+
+            if image_urls and image_mode == "skip":
+                return
+
+            def format_text(include_placeholders: bool, allow_image_fallback: bool = True) -> str:
+                content = message_text
+                if include_placeholders and image_urls:
+                    placeholders = " [图片]" * len(image_urls)
+                    content = f"{content}{placeholders}" if content else placeholders.strip()
+                if allow_image_fallback and not content and image_urls:
+                    content = "[图片]"
+                head = f"{sender_name}: " if not prefix else f"{prefix} {sender_name}: "
+                return f"{head}{content}".strip()
+
+            if image_urls and image_mode == "link":
+                text = format_text(include_placeholders=False, allow_image_fallback=False)
+                await adapter.send_rich_message(text, images=image_urls)
+                return
+
+            text = format_text(include_placeholders=image_mode == "placeholder")
+            await adapter.send_mc_message(text)
+
+        tasks = [build_and_send(adapter) for adapter in adapters]
+        if tasks:
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for result in results:
+                if isinstance(result, Exception):
+                    logger.error(f"QQ群消息同步到MC时出错: {result}")
+
     async def terminate(self):
         """插件终止时的清理工作"""
         logger.info("插件终止")
@@ -219,24 +315,6 @@ class MCQQPlugin(Star):
         
         # 取消整点广播任务
         self.broadcast_scheduler.stop()
-        
-        # 清理平台适配器注册信息
-        try:
-            from astrbot.core.platform.register import platform_cls_map, platform_registry
-            logger.debug(f"清理前 platform_cls_map: {list(platform_cls_map.keys())}")
-            logger.debug(f"清理前 platform_registry: {[p.name for p in platform_registry]}")
-            
-            if "minecraft" in platform_cls_map:
-                del platform_cls_map["minecraft"]
-            for i, platform_metadata in enumerate(platform_registry):
-                if platform_metadata.name == "minecraft":
-                    del platform_registry[i]
-                    break
-                    
-            logger.debug(f"清理后 platform_cls_map: {list(platform_cls_map.keys())}")
-            logger.debug(f"清理后 platform_registry: {[p.name for p in platform_registry]}")
-        except Exception as e:
-            logger.error(f"清理 Minecraft 平台适配器注册信息失败: {str(e)}")
 
     async def get_minecraft_adapter(self, server_name: Optional[str] = None) -> Optional[MinecraftPlatformAdapter]:
         """获取指定的Minecraft平台适配器，如果未指定则获取主适配器"""

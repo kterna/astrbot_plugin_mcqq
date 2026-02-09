@@ -67,14 +67,82 @@ class MessageBuilder:
         return component
     
     @staticmethod
-    def create_broadcast_message(components: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def _clean_dict(data: Dict[str, Any]) -> Dict[str, Any]:
+        """从字典中移除 None 值"""
+        return {key: value for key, value in data.items() if value is not None}
+
+    @staticmethod
+    def _normalize_click_event(click_event: Dict[str, Any]) -> Dict[str, Any]:
+        """将点击事件规范化为原生 Minecraft 组件格式"""
+        action = click_event.get("action")
+        if isinstance(action, str):
+            action = action.lower()
+
+        normalized = {
+            "action": action,
+            "value": click_event.get("value")
+        }
+        return MessageBuilder._clean_dict(normalized)
+
+    @staticmethod
+    def _normalize_hover_contents(contents: Any) -> Any:
+        if isinstance(contents, list):
+            if len(contents) == 1:
+                return contents[0]
+            return {
+                "text": "",
+                "extra": contents
+            }
+        return contents
+
+    @staticmethod
+    def _normalize_hover_event(hover_event: Dict[str, Any]) -> Dict[str, Any]:
+        """将悬浮事件规范化为原生 Minecraft 组件格式"""
+        action = hover_event.get("action")
+        if isinstance(action, str):
+            action = action.lower()
+
+        contents = hover_event.get("contents")
+        if contents is None:
+            contents = hover_event.get("text")
+        if contents is None:
+            contents = hover_event.get("value")
+
+        normalized = {
+            "action": action,
+            "contents": MessageBuilder._normalize_hover_contents(contents)
+        }
+        return MessageBuilder._clean_dict(normalized)
+
+    @staticmethod
+    def to_native_component(component: Dict[str, Any]) -> Dict[str, Any]:
+        """将内部组件格式转换为原生 Minecraft 组件格式"""
+        normalized = MessageBuilder.clean_component(component)
+        normalized = dict(normalized)
+
+        if "click_event" in normalized and "clickEvent" not in normalized:
+            click_event = normalized.pop("click_event")
+            normalized["clickEvent"] = MessageBuilder._normalize_click_event(click_event)
+
+        if "hover_event" in normalized and "hoverEvent" not in normalized:
+            hover_event = normalized.pop("hover_event")
+            normalized["hoverEvent"] = MessageBuilder._normalize_hover_event(hover_event)
+
+        normalized = MessageBuilder._clean_dict(normalized)
+        return normalized
+
+    @staticmethod
+    def create_broadcast_message(components: List[Dict[str, Any]], wrap_components: bool = True) -> Dict[str, Any]:
         """创建广播消息"""
         message_components = []
         for component in components:
-            message_components.append({
-                "type": "text",
-                "data": component
-            })
+            if wrap_components:
+                message_components.append({
+                    "type": "text",
+                    "data": MessageBuilder.clean_component(component)
+                })
+            else:
+                message_components.append(MessageBuilder.to_native_component(component))
         
         return {
             "api": "broadcast",
@@ -84,23 +152,28 @@ class MessageBuilder:
         }
     
     @staticmethod
-    def create_private_message(uuid: str, component: Dict[str, Any], nickname: str = "") -> Dict[str, Any]:
+    def create_private_message(uuid: str, component: Dict[str, Any], nickname: str = "", wrap_components: bool = True) -> Dict[str, Any]:
         """创建私聊消息"""
+        if wrap_components:
+            message_components = [{
+                "type": "text",
+                "data": MessageBuilder.clean_component(component)
+            }]
+        else:
+            message_components = [MessageBuilder.to_native_component(component)]
+
         return {
             "api": "send_private_msg",
             "data": {
                 "uuid": uuid,
                 "nickname": nickname,
-                "message": [{
-                    "type": "text",
-                    "data": component
-                }]
+                "message": message_components
             },
             "echo": "1"
         }
     
     @staticmethod
-    def create_simple_broadcast(message: str, sender: str = None) -> Dict[str, Any]:
+    def create_simple_broadcast(message: str, sender: str = None, wrap_components: bool = True) -> Dict[str, Any]:
         """创建简单的广播消息"""
         # 构建消息文本
         if sender:
@@ -112,7 +185,7 @@ class MessageBuilder:
         text_component = MessageBuilder.create_text_event(mc_message)
         
         # 创建广播消息
-        return MessageBuilder.create_broadcast_message([text_component])
+        return MessageBuilder.create_broadcast_message([text_component], wrap_components=wrap_components)
     
     @staticmethod
     def create_rich_broadcast(
@@ -122,7 +195,8 @@ class MessageBuilder:
         click_url: str = "",
         hover_text: str = "",
         images: List[str] = None,
-        click_action: str = "OPEN_URL"
+        click_action: str = "OPEN_URL",
+        wrap_components: bool = True
     ) -> Dict[str, Any]:
         """创建富文本广播消息"""
         # 创建基础文本组件
@@ -141,11 +215,11 @@ class MessageBuilder:
             for image_url in images:
                 if not image_url:
                     continue
-                image_component = MessageBuilder.create_text_event(f"[图片][{image_url}]")
+                image_component = MessageBuilder.create_text_event("[图片]")
                 MessageBuilder.add_click_event(image_component, image_url, "OPEN_URL")
                 components.append(image_component)
         # 创建广播消息
-        return MessageBuilder.create_broadcast_message(components)
+        return MessageBuilder.create_broadcast_message(components, wrap_components=wrap_components)
     
     @staticmethod
     def create_admin_announcement(

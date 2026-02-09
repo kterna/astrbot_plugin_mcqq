@@ -15,27 +15,45 @@ from astrbot.core.platform.register import register_platform_adapter
 from astrbot.core.star.star_tools import StarTools
 from astrbot import logger
 from astrbot.core.message.message_event_result import MessageChain
+from astrbot.core.platform.register import platform_cls_map, platform_registry
 
 from .base_adapter import BaseMinecraftAdapter
 from ..events.minecraft_event import MinecraftMessageEvent
-from ..config.server_types import Vanilla, Spigot, Fabric, Forge, Neoforge
+from ..config.server_types import Vanilla, Spigot, Fabric, Forge, Neoforge, QueqiaoV2
 from ..managers.group_binding_manager import GroupBindingManager
 from ..managers.websocket_manager import WebSocketManager
 from ..managers.message_sender import MessageSender
 from ..utils.bot_filter import BotFilter
 from ..handlers.message_handler import MessageHandler
 
+
+def _cleanup_previous_registration():
+    """确保热重载不会因残留的适配器注册而失败。"""
+    if "minecraft" in platform_cls_map:
+        del platform_cls_map["minecraft"]
+    if platform_registry:
+        platform_registry[:] = [p for p in platform_registry if p.name != "minecraft"]
+
+
+_cleanup_previous_registration()
+
 @register_platform_adapter(
     "minecraft", 
     "Minecraft服务器适配器", 
-    # logo_path="minecraft.png",  # 新增：指定logo文件路径
+    logo_path="minecraft.png",  # 新增：指定logo文件路径
     default_config_tmpl={
         "adapter_id": "minecraft_server_1",  # 添加适配器ID配置
         "ws_url": "ws://127.0.0.1:8080/minecraft/ws",
         "server_name": "Server",
         "Authorization": "",
+        "queqiao_v2": True,
         "enable_join_quit_messages": True,
         "qq_message_prefix": "[MC]",
+        "sync_chat_mc_to_qq": False,
+        "sync_chat_qq_to_mc": False,
+        "qq_to_mc_prefix": "[QQ]",
+        "qq_to_mc_filter_commands": True,
+        "qq_to_mc_image_mode": "link",
         "max_reconnect_retries": 5,
         "reconnect_interval": 3,
         "filter_bots": True,
@@ -58,8 +76,14 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
         self.ws_url = self.config.get("ws_url", "ws://127.0.0.1:8080/minecraft/ws")
         self._server_name = self.config.get("server_name", "Server")
         self.Authorization = self.config.get("Authorization", "")
+        self.queqiao_v2 = self.config.get("queqiao_v2", True)
         self.enable_join_quit = self.config.get("enable_join_quit_messages", True)
         self.qq_message_prefix = self.config.get("qq_message_prefix", "[MC]")
+        self.sync_chat_mc_to_qq = self.config.get("sync_chat_mc_to_qq", False)
+        self.sync_chat_qq_to_mc = self.config.get("sync_chat_qq_to_mc", False)
+        self.qq_to_mc_prefix = self.config.get("qq_to_mc_prefix", "[QQ]")
+        self.qq_to_mc_filter_commands = self.config.get("qq_to_mc_filter_commands", True)
+        self.qq_to_mc_image_mode = self.config.get("qq_to_mc_image_mode", "link")
         
         # 从配置中获取重连参数
         self.reconnect_interval = self.config.get("reconnect_interval", 3)  # 重连间隔(秒)
@@ -80,6 +104,8 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
             qq_message_prefix=self.qq_message_prefix,
             enable_join_quit=self.enable_join_quit,
             bot_filter=self.bot_filter,
+            sync_chat_mc_to_qq=self.sync_chat_mc_to_qq,
+            qq_to_mc_prefix=self.qq_to_mc_prefix,
         )
 
         # 加载绑定关系
@@ -138,7 +164,10 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
             server_name = data.get("server_name", self._server_name)
 
             # 根据server_type获取对应的服务器类型对象
-            server_class = self.message_handler.get_server_class(server_type)
+            if self.queqiao_v2:
+                server_class = QueqiaoV2()
+            else:
+                server_class = self.message_handler.get_server_class(server_type)
 
             # 获取关联的群聊列表
             bound_groups = self.binding_manager.get_bound_groups(server_name)
@@ -170,7 +199,12 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
     async def _handle_chat_event(self, data, server_class, bound_groups):
         """处理聊天消息事件"""
         player_data = data.get("player", "")
-        player_name = player_data.get("display_name", "")
+        player_name = (
+            player_data.get("display_name")
+            or player_data.get("nickname")
+            or player_data.get("name")
+            or ""
+        )
         message_content = data.get("message", "")
         
         logger.debug(f"[{self.adapter_id}] 收到聊天消息: 玩家={player_name}, 消息={message_content}")
@@ -203,7 +237,12 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
     async def _handle_join_event(self, data, server_class, bound_groups):
         """处理玩家加入事件"""
         player_data = data.get("player", "")
-        player_name = player_data.get("display_name", "")
+        player_name = (
+            player_data.get("display_name")
+            or player_data.get("nickname")
+            or player_data.get("name")
+            or ""
+        )
             
         logger.debug(f"[{self.adapter_id}] 收到玩家加入: {player_name}")
         
@@ -228,7 +267,12 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
     async def _handle_quit_event(self, data, server_class, bound_groups):
         """处理玩家退出事件"""
         player_data = data.get("player", "")
-        player_name = player_data.get("display_name", "")
+        player_name = (
+            player_data.get("display_name")
+            or player_data.get("nickname")
+            or player_data.get("name")
+            or ""
+        )
 
         logger.debug(f"[{self.adapter_id}] 收到玩家退出: {player_name}")
             
@@ -322,25 +366,6 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
         """终止平台适配器"""
         # 关闭 websocket 连接
         await self.websocket_manager.close()
-        
-        # 清理平台适配器注册信息
-        try:
-            from astrbot.core.platform.register import platform_cls_map, platform_registry
-            logger.debug(f"清理前 platform_cls_map: {list(platform_cls_map.keys())}")
-            logger.debug(f"清理前 platform_registry: {[p.name for p in platform_registry]}")
-            
-            if "minecraft" in platform_cls_map:
-                del platform_cls_map["minecraft"]
-            # 从注册表中移除
-            for i, platform_metadata in enumerate(platform_registry):
-                if platform_metadata.name == "minecraft":
-                    del platform_registry[i]
-                    break
-                    
-            logger.debug(f"清理后 platform_cls_map: {list(platform_cls_map.keys())}")
-            logger.debug(f"清理后 platform_registry: {[p.name for p in platform_registry]}")
-        except Exception as e:
-            logger.error(f"清理 Minecraft 平台适配器注册信息失败: {str(e)}")
             
         logger.info("Minecraft平台适配器已被优雅地关闭")
 

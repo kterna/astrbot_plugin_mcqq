@@ -14,7 +14,7 @@ class MessageSender:
         """发送广播消息到Minecraft服务器"""
         try:
             # 使用MessageBuilder创建简单广播消息
-            broadcast_msg = MessageBuilder.create_simple_broadcast(message, sender)
+            broadcast_msg = MessageBuilder.create_simple_broadcast(message, sender, wrap_components=False)
             
             # 记录日志
             MessageBuilder.log_message(broadcast_msg, "广播消息")
@@ -36,7 +36,8 @@ class MessageSender:
                 click_url=click_url,
                 hover_text=hover_text,
                 images=images,
-                click_action="OPEN_URL"
+                click_action="OPEN_URL",
+                wrap_components=False
             )
             
             # 发送消息
@@ -59,7 +60,7 @@ class MessageSender:
                 component = MessageBuilder.clean_component(component)
                 
                 # 创建私聊消息
-                private_msg = MessageBuilder.create_private_message(uuid, component)
+                private_msg = MessageBuilder.create_private_message(uuid, component, wrap_components=False)
                 
                 # 记录日志
                 MessageBuilder.log_message(private_msg, f"第 {i+1}/{total_components} 条私聊消息")

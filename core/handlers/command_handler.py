@@ -201,6 +201,7 @@ mc:
     #<内容> - 发起ai对话
     #qq - 向qq群发送消息
     #wiki 词条名称 - 查询Minecraft Wiki
+    #路标 <查看|增加|删除|编辑> - 管理坐标路标
 """
     
     async def handle_rcon_command(self, event: AstrMessageEvent):

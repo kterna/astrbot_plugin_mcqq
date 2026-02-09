@@ -18,7 +18,9 @@ class MessageHandler:
                  server_name: str,
                  qq_message_prefix: str,
                  enable_join_quit: bool,
-                 bot_filter: BotFilter):
+                 bot_filter: BotFilter,
+                 sync_chat_mc_to_qq: bool,
+                 qq_to_mc_prefix: str):
         """
         初始化消息处理器
         
@@ -27,11 +29,15 @@ class MessageHandler:
             qq_message_prefix: QQ消息前缀
             enable_join_quit: 是否启用进入/退出消息
             bot_filter: 假人过滤器
+            sync_chat_mc_to_qq: 是否同步MC聊天到QQ
+            qq_to_mc_prefix: QQ->MC消息前缀，用于回环过滤
         """
         self.server_name = server_name
         self.qq_message_prefix = qq_message_prefix
         self.enable_join_quit = enable_join_quit
         self.bot_filter = bot_filter
+        self.sync_chat_mc_to_qq = sync_chat_mc_to_qq
+        self.qq_to_mc_prefix = qq_to_mc_prefix or ""
         
         # 使用命令工厂创建命令注册表
         self.command_registry = CommandFactory.setup_command_registry(self)
@@ -123,6 +129,20 @@ class MessageHandler:
                     return True
         except Exception as e:
             logger.error(f"执行 Minecraft 专用命令时出错: {e}")
+
+        # 同步普通聊天到QQ（可配置）
+        if self.sync_chat_mc_to_qq and bound_groups and message_text:
+            if self.bot_filter.is_bot_player(player_name):
+                logger.debug(f"过滤假人 {player_name} 的聊天消息")
+            else:
+                stripped_message = message_text.lstrip()
+                prefix = self.qq_to_mc_prefix.strip()
+                if prefix and stripped_message.startswith(prefix):
+                    logger.debug("检测到QQ前缀消息，跳过MC->QQ同步以避免回环")
+                else:
+                    formatted_message = f"{self.qq_message_prefix} {player_name}: {message_text}"
+                    await send_to_groups_callback(bound_groups, formatted_message)
+                    logger.info(f"聊天消息已同步到QQ群: {player_name}: {message_text}")
 
         logger.info(f"{player_name}: {message_text}")
 

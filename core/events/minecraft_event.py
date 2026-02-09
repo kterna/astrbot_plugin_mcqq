@@ -29,6 +29,7 @@ class MinecraftMessageEvent(AstrMessageEvent):
         self.adapter = adapter
         self.on_response: Optional[Callable[[str], Awaitable[None]]] = None
 
+
     async def send(self, message: MessageChain):
         """发送消息到Minecraft服务器"""
         try:
