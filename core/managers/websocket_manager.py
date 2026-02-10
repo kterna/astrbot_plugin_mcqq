@@ -47,7 +47,8 @@ class WebSocketManager:
                     self.ws_url,
                     additional_headers=self.headers,
                     ping_interval=30,
-                    ping_timeout=10
+                    ping_timeout=10,
+                    proxy=None,  # 禁用代理
                 ) as websocket:
                     self.websocket = websocket
                     self.connected = True
