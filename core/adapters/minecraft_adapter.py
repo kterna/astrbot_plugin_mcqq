@@ -27,6 +27,149 @@ from ..utils.bot_filter import BotFilter
 from ..handlers.message_handler import MessageHandler
 
 
+def _to_str(value: Any, default: str = "") -> str:
+    if value is None:
+        return default
+    if isinstance(value, str):
+        return value
+    return str(value)
+
+
+def _to_bool(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        v = value.strip().lower()
+        if v in ("1", "true", "yes", "y", "on"):
+            return True
+        if v in ("0", "false", "no", "n", "off"):
+            return False
+    return default
+
+
+def _to_int(value: Any, default: int) -> int:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        v = value.strip()
+        if v == "":
+            return default
+        try:
+            return int(v)
+        except ValueError:
+            try:
+                return int(float(v))
+            except ValueError:
+                return default
+    return default
+
+
+def _to_list(value: Any, default: list[str]) -> list[str]:
+    if value is None:
+        return list(default)
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    if isinstance(value, str):
+        v = value.strip()
+        if v == "":
+            return list(default)
+        try:
+            parsed = json.loads(v)
+        except Exception:
+            parsed = None
+        if isinstance(parsed, list):
+            return parsed
+        parts = [part.strip() for part in v.split(",")]
+        parts = [part for part in parts if part]
+        return parts if parts else list(default)
+    return list(default)
+
+
+def _coerce_platform_config(config: dict) -> dict:
+    """将平台配置中的字符串值转为期望的类型。"""
+    if not isinstance(config, dict):
+        return {}
+
+    # 基础字段
+    config["adapter_id"] = _to_str(
+        config.get("adapter_id", "minecraft_server_1"),
+        "minecraft_server_1",
+    )
+    config["ws_url"] = _to_str(
+        config.get("ws_url", "ws://127.0.0.1:8080/minecraft/ws"),
+        "ws://127.0.0.1:8080/minecraft/ws",
+    )
+    config["server_name"] = _to_str(config.get("server_name", "Server"), "Server")
+    config["Authorization"] = _to_str(config.get("Authorization", ""), "")
+
+    # 布尔字段
+    config["queqiao_v2"] = _to_bool(config.get("queqiao_v2", True), True)
+    config["enable_join_quit_messages"] = _to_bool(
+        config.get("enable_join_quit_messages", True),
+        True,
+    )
+    config["sync_chat_mc_to_qq"] = _to_bool(
+        config.get("sync_chat_mc_to_qq", False),
+        False,
+    )
+    config["sync_chat_qq_to_mc"] = _to_bool(
+        config.get("sync_chat_qq_to_mc", False),
+        False,
+    )
+    config["qq_to_mc_filter_commands"] = _to_bool(
+        config.get("qq_to_mc_filter_commands", True),
+        True,
+    )
+    config["filter_bots"] = _to_bool(config.get("filter_bots", True), True)
+    config["rcon_enabled"] = _to_bool(config.get("rcon_enabled", False), False)
+
+    # 字符串字段
+    config["qq_message_prefix"] = _to_str(
+        config.get("qq_message_prefix", "[MC]"),
+        "[MC]",
+    )
+    config["qq_to_mc_prefix"] = _to_str(
+        config.get("qq_to_mc_prefix", "[QQ]"),
+        "[QQ]",
+    )
+    config["qq_to_mc_image_mode"] = _to_str(
+        config.get("qq_to_mc_image_mode", "link"),
+        "link",
+    )
+    config["rcon_host"] = _to_str(config.get("rcon_host", "localhost"), "localhost")
+    config["rcon_password"] = _to_str(config.get("rcon_password", ""), "")
+
+    # 数值字段
+    config["max_reconnect_retries"] = _to_int(
+        config.get("max_reconnect_retries", 5),
+        5,
+    )
+    config["reconnect_interval"] = _to_int(
+        config.get("reconnect_interval", 3),
+        3,
+    )
+    config["rcon_port"] = _to_int(config.get("rcon_port", 25575), 25575)
+
+    # 列表字段
+    config["bot_prefix"] = _to_list(
+        config.get("bot_prefix", ["bot_", "Bot_"]),
+        ["bot_", "Bot_"],
+    )
+    config["bot_suffix"] = _to_list(config.get("bot_suffix", []), [])
+
+    return config
+
+
 def _cleanup_previous_registration():
     """确保热重载不会因残留的适配器注册而失败。"""
     if "minecraft" in platform_cls_map:
@@ -67,6 +210,7 @@ _cleanup_previous_registration()
 )
 class MinecraftPlatformAdapter(BaseMinecraftAdapter):
     def __init__(self, platform_config: dict, platform_settings: dict, event_queue: asyncio.Queue) -> None:
+        platform_config = _coerce_platform_config(platform_config)
         super().__init__(platform_config, platform_settings, event_queue)
         
         # 路由器引用（用于适配器间通信）
