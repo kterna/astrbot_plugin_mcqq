@@ -258,9 +258,9 @@ class MessageHandler:
             return False
 
         # 构造进入/退出消息
-        if event_name == "player_join":
+        if event_name == getattr(server_class, "join", None):
             message = f"{self.qq_message_prefix} 🟢 {player_name} 加入了游戏"
-        elif event_name == "player_quit":
+        elif event_name == getattr(server_class, "quit", None):
             message = f"{self.qq_message_prefix} 🔴 {player_name} 离开了游戏"
         else:
             return False
@@ -291,12 +291,16 @@ class MessageHandler:
         Returns:
             bool: 是否处理了消息
         """
-        if event_name != "player_death":
+        if event_name != getattr(server_class, "death", None):
             return False
             
         player_data = data.get("player", {})
         player_name = player_data.get("nickname", player_data.get("display_name", "未知玩家"))
-        death_message = data.get("death_message", f"{player_name} 死了")
+        death_data = data.get("death")
+        if isinstance(death_data, dict) and death_data.get("text"):
+            death_message = death_data["text"]
+        else:
+            death_message = data.get("message") or data.get("death_message", f"{player_name} 死了")
 
         # 过滤假人
         if self.bot_filter.is_bot_player(player_name):

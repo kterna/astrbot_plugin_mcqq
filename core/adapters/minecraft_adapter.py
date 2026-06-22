@@ -440,7 +440,11 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
 
     async def _handle_death_event(self, data, server_class, bound_groups):
         """处理玩家死亡事件"""
-        death_message = data.get("message", "")
+        death_data = data.get("death")
+        if isinstance(death_data, dict) and death_data.get("text"):
+            death_message = death_data["text"]
+        else:
+            death_message = data.get("message", "")
         # 路由死亡消息到其他适配器
         if self.router and death_message:
             await self.router.route_player_death(self.adapter_id, death_message)

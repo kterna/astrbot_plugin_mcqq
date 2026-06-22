@@ -58,6 +58,7 @@ class Forge:
         self.chat: str = "ServerChatEvent"
         self.join: str = "PlayerLoggedInEvent"
         self.quit: str = "PlayerLoggedOutEvent"
+        self.death: str = "PlayerDeathEvent"
 
         self.player: Dict[str, str] = {
             "nickname": "nickname",
@@ -75,6 +76,7 @@ class Neoforge:
         self.chat: str = "NeoServerChatEvent"
         self.join: str = "NeoPlayerLoggedInEvent"
         self.quit: str = "NeoPlayerLoggedOutEvent"
+        self.death: str = "NeoPlayerDeathEvent"
         self.player_command: str = "NeoCommandEvent"
 
         self.player: Dict[str, str] = {
