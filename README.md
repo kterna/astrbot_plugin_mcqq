@@ -71,15 +71,54 @@
 
 ### 3. 鹊桥模组配置
 
-确保鹊桥模组的 `config.yml` (或 MCDR 的 `config.json`) 配置正确，插件需要读取其中的信息。
+确保鹊桥模组的 `config.yml` (或 MCDR 的 `config.json`) 配置正确。
 
-**示例 `config.yml`:**
+#### 方式 A：正向连接（默认）
+
+MC/鹊桥 开 WebSocket Server，AstrBot 主动连接：
+
 ```yaml
-server_name: "MyServer-1"  # 必须与插件适配器配置中的 SERVER_NAME 一致
-access_token: "your_secure_token" # 建议设置, 并填入插件配置的 AUTHORIZATION
-websocket:
-  host: "127.0.0.1"
+server_name: "MyServer-1"  # 必须与插件适配器配置中的 server_name 一致
+access_token: "your_secure_token"
+websocket_server:
+  enable: true
+  host: "0.0.0.0"
   port: 8080
+websocket_client:
+  enable: false
+```
+
+#### 方式 B：反向连接（租赁服推荐）
+
+租赁服通常无法自定义开放端口。让 **AstrBot 开 WebSocket Server**，MC/鹊桥作为 Client 主动连出：
+
+**鹊桥原版 `config.yml`:**
+```yaml
+server_name: "MyServer-1"
+access_token: "your_secure_token"
+websocket_server:
+  enable: false
+websocket_client:
+  enable: true
+  reconnect_interval: 5
+  reconnect_max_times: 0   # 0 = 无限重连（视版本支持）
+  url_list:
+    - "ws://你的AstrBot公网IP:8080/minecraft/ws"
+```
+
+**鹊桥 MCDR 移植版 `config.json`:**
+```json
+{
+  "mode": "client",
+  "websocket": {
+    "url": "ws://你的AstrBot公网IP:8080/minecraft/ws",
+    "auto_start": true,
+    "reconnect_interval": 5,
+    "reconnect_max_times": 0
+  },
+  "server": { "name": "MyServer-1", "type": "mcdr" },
+  "security": { "access_token": "your_secure_token" }
+}
 ```
 
 ### 4. 适配器配置
@@ -88,8 +127,12 @@ websocket:
 2.  填写以下配置项：
 
 - `adapter_id`: 适配器的唯一标识，例如 `mc_server_1`。
-- `ws_url`: 鹊桥模组的 WebSocket 地址，例如 `ws://127.0.0.1:8080/minecraft/ws`。
-- `server_name`: 服务器名称，**必须**与鹊桥模组配置中的 `server_name` 完全一致。
+- `ws_mode`: WebSocket 模式。
+  - `client`（默认）：正向，AstrBot 主动连接鹊桥 Server。
+  - `server`：反向，AstrBot 监听端口，等待鹊桥 Client 连入（租赁服推荐）。
+- `ws_url`: **正向模式**下鹊桥的 WebSocket 地址，例如 `ws://127.0.0.1:8080/minecraft/ws`。
+- `ws_server_host` / `ws_server_port` / `ws_server_path`: **反向模式**下 AstrBot 监听地址，默认 `0.0.0.0:8080/minecraft/ws`。
+- `server_name`: 服务器名称，**必须**与鹊桥配置中的 `server_name` 完全一致。
 - `Authorization`: 访问令牌，如果鹊桥配置了 `access_token` 则必须填写。
 - `enable_join_quit_messages`: (true/false) 是否转发玩家加入/退出消息。
 - `qq_message_prefix`: 转发到 QQ 消息的前缀，例如 `[MC] `。
@@ -98,8 +141,8 @@ websocket:
 - `qq_to_mc_prefix`: QQ -> MC 消息前缀，例如 `[QQ]`，用于标识来源与回环过滤。
 - `qq_to_mc_filter_commands`: (true/false) 是否过滤 QQ 侧命令消息（`/` 或唤醒词开头）。
 - `qq_to_mc_image_mode`: QQ -> MC 图片处理模式（`link`/`placeholder`/`skip`）。
-- `max_reconnect_retries`: 连接断开后最大重试次数（默认 5）。
-- `reconnect_interval`: 重连间隔秒数（默认 3）。
+- `max_reconnect_retries`: 连接断开后最大重试次数（默认 5，仅正向模式）。
+- `reconnect_interval`: 重连间隔秒数（默认 3，仅正向模式）。
 - `filter_bots`: (true/false) 是否开启假人消息过滤。
 - `bot_prefix`: 假人名称前缀列表，例如 `["bot_", "robot-"]`。
 - `bot_suffix`: 假人名称后缀列表。
@@ -107,6 +150,11 @@ websocket:
 - `rcon_host`: RCON 地址。
 - `rcon_port`: RCON 端口。
 - `rcon_password`: RCON 密码 (必填)。
+
+> **反向模式注意**：
+> 1. 需要在防火墙 / 云安全组放行 `ws_server_port`。
+> 2. 若 AstrBot 跑在 Docker 内，还需把该端口映射到宿主机。
+> 3. 多个 MC 服可共用同一监听端口，通过不同的 `server_name`（`x-self-name`）区分。
 
 ### 5. 绑定群聊
 

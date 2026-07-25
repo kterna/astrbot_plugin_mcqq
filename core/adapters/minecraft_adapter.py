@@ -112,6 +112,20 @@ def _coerce_platform_config(config: dict) -> dict:
     config["server_name"] = _to_str(config.get("server_name", "Server"), "Server")
     config["Authorization"] = _to_str(config.get("Authorization", ""), "")
 
+    # WebSocket 模式: client(正向/默认) 或 server(反向，租赁服友好)
+    ws_mode = _to_str(config.get("ws_mode", "client"), "client").strip().lower()
+    if ws_mode not in ("client", "server"):
+        ws_mode = "client"
+    config["ws_mode"] = ws_mode
+    config["ws_server_host"] = _to_str(
+        config.get("ws_server_host", "0.0.0.0"),
+        "0.0.0.0",
+    )
+    config["ws_server_path"] = _to_str(
+        config.get("ws_server_path", "/minecraft/ws"),
+        "/minecraft/ws",
+    )
+
     # 布尔字段
     config["queqiao_v2"] = _to_bool(config.get("queqiao_v2", True), True)
     config["enable_join_quit_messages"] = _to_bool(
@@ -158,6 +172,10 @@ def _coerce_platform_config(config: dict) -> dict:
         config.get("reconnect_interval", 3),
         3,
     )
+    config["ws_server_port"] = _to_int(
+        config.get("ws_server_port", 8080),
+        8080,
+    )
     config["rcon_port"] = _to_int(config.get("rcon_port", 25575), 25575)
 
     # 列表字段
@@ -186,7 +204,14 @@ _cleanup_previous_registration()
     logo_path="minecraft.png",  # 新增：指定logo文件路径
     default_config_tmpl={
         "adapter_id": "minecraft_server_1",  # 添加适配器ID配置
+        # WebSocket 模式:
+        # - client: 正向，AstrBot 主动连接鹊桥 Server（默认）
+        # - server: 反向，AstrBot 开 WS Server，鹊桥作为 Client 连入（租赁服推荐）
+        "ws_mode": "client",
         "ws_url": "ws://127.0.0.1:8080/minecraft/ws",
+        "ws_server_host": "0.0.0.0",
+        "ws_server_port": 8080,
+        "ws_server_path": "/minecraft/ws",
         "server_name": "Server",
         "Authorization": "",
         "queqiao_v2": True,
@@ -217,7 +242,11 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
         self.router = None
 
         # 从配置中获取WebSocket连接信息
+        self.ws_mode = self.config.get("ws_mode", "client")
         self.ws_url = self.config.get("ws_url", "ws://127.0.0.1:8080/minecraft/ws")
+        self.ws_server_host = self.config.get("ws_server_host", "0.0.0.0")
+        self.ws_server_port = self.config.get("ws_server_port", 8080)
+        self.ws_server_path = self.config.get("ws_server_path", "/minecraft/ws")
         self._server_name = self.config.get("server_name", "Server")
         self.Authorization = self.config.get("Authorization", "")
         self.queqiao_v2 = self.config.get("queqiao_v2", True)
@@ -228,11 +257,11 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
         self.qq_to_mc_prefix = self.config.get("qq_to_mc_prefix", "[QQ]")
         self.qq_to_mc_filter_commands = self.config.get("qq_to_mc_filter_commands", True)
         self.qq_to_mc_image_mode = self.config.get("qq_to_mc_image_mode", "link")
-        
+
         # 从配置中获取重连参数
         self.reconnect_interval = self.config.get("reconnect_interval", 3)  # 重连间隔(秒)
         self.max_retries = self.config.get("max_reconnect_retries", 5)  # 最大重试次数
-        
+
         # 初始化数据目录
         self.data_dir = str(StarTools.get_data_dir("mcqq"))
 
@@ -255,11 +284,11 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
         # 加载绑定关系
         self.binding_manager.load_bindings()
 
-        # WebSocket连接头信息
+        # WebSocket连接头信息（正向 client 模式使用）
         self.headers = {
             "x-self-name": self._server_name,
             "x-client-origin": "astrbot",
-            "Authorization": f"Bearer {self.Authorization}" if self.Authorization else ""  # 添加Bearer前缀
+            "Authorization": f"Bearer {self.Authorization}" if self.Authorization else ""
         }
 
         # 初始化WebSocket管理器和消息发送器
@@ -267,10 +296,16 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
             ws_url=self.ws_url,
             headers=self.headers,
             reconnect_interval=self.reconnect_interval,
-            max_retries=self.max_retries
+            max_retries=self.max_retries,
+            mode=self.ws_mode,
+            server_host=self.ws_server_host,
+            server_port=self.ws_server_port,
+            server_path=self.ws_server_path,
+            server_name=self._server_name,
+            access_token=self.Authorization,
         )
         self.message_sender = MessageSender(self.websocket_manager)
-        
+
         # 设置消息处理回调
         self.websocket_manager.set_message_handler(self.handle_mc_message)
         
@@ -287,12 +322,23 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
         )
 
     async def run(self) -> Awaitable[Any]:
-        """启动WebSocket客户端，维持与鹊桥模组的连接"""
+        """启动 WebSocket（client 正向 / server 反向），维持与鹊桥的连接"""
         # 注册到路由器（如果已设置）
         if hasattr(self, 'router') and self.router:
             self.router.register_adapter(self)
             logger.info(f"适配器 {self.adapter_id} 已自动注册到路由器")
-        
+
+        if self.ws_mode == "server":
+            logger.info(
+                f"[{self.adapter_id}] 使用反向 WebSocket 模式，监听 "
+                f"{self.ws_server_host}:{self.ws_server_port}{self.ws_server_path} "
+                f"(server_name={self._server_name})"
+            )
+        else:
+            logger.info(
+                f"[{self.adapter_id}] 使用正向 WebSocket 模式，连接 {self.ws_url}"
+            )
+
         # 直接运行并等待 WebSocket 循环，由 PlatformManager 统一托管任务
         await self.websocket_manager.start()
 
