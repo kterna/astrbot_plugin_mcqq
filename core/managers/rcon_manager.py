@@ -17,7 +17,15 @@ class RconManager:
         self.rcon_port: Optional[int] = None
         self.rcon_password: Optional[str] = None
         self.rcon_connected: bool = False
-    
+        # 串行化重连，避免多条指令同时触发重连
+        self._reconnect_lock: Optional[asyncio.Lock] = None
+
+    def _get_reconnect_lock(self) -> asyncio.Lock:
+        """惰性创建重连锁（保证绑定到实际运行的事件循环）"""
+        if self._reconnect_lock is None:
+            self._reconnect_lock = asyncio.Lock()
+        return self._reconnect_lock
+
     def _validate_config(self, adapter) -> Tuple[bool, str]:
         """验证RCON配置的有效性"""
         if not adapter:
@@ -89,18 +97,23 @@ class RconManager:
                 self.rcon_connected = False
                 self.rcon_client = None
 
-    def _check_rcon_availability(self, sender_id: str, adapter=None) -> Tuple[bool, str]:
+    async def _check_rcon_availability(self, sender_id: str, adapter=None) -> Tuple[bool, str]:
         """检查RCON是否可用，并在未连接时尝试重连"""
         if not self.rcon_enabled:
             logger.info(f"RCON: 用户 {sender_id} 尝试执行rcon指令，但RCON功能未启用。")
             return False, "❌ RCON 功能当前未启用。请联系管理员在插件配置中启用。"
-        
+
         if not self.rcon_client or not self.rcon_connected:
             logger.warning(f"RCON: 用户 {sender_id} 尝试执行指令但RCON未连接。正在尝试自动重连...")
-            
-            # 尝试自动重连
-            reconnect_success = asyncio.run_coroutine_threadsafe(self.reconnect(adapter), asyncio.get_running_loop()).result()
-            
+
+            # 尝试自动重连；直接 await，不能用 run_coroutine_threadsafe().result()
+            # 阻塞当前事件循环线程（会与待执行的重连协程互相等待造成死锁）
+            async with self._get_reconnect_lock():
+                # 可能在排队等锁期间已由其他指令重连成功
+                if self.rcon_client and self.rcon_connected:
+                    return True, ""
+                reconnect_success = await self.reconnect(adapter)
+
             if reconnect_success:
                 logger.info("RCON: 自动重连成功。")
                 return True, ""
@@ -142,7 +155,8 @@ class RconManager:
         # 重新连接命令
         if command == "重启":
             logger.info(f"RCON: 用户 {sender_id} 正在尝试重启RCON连接...")
-            reconnect_success = await self.reconnect(adapter)
+            async with self._get_reconnect_lock():
+                reconnect_success = await self.reconnect(adapter)
             if reconnect_success:
                 return True, "✅ RCON连接已成功重启。"
             else:
@@ -152,7 +166,7 @@ class RconManager:
             return False, "❓ 请提供要执行的RCON指令，例如：/rcon whitelist add 玩家名"
         
         # 检查RCON可用性
-        is_available, error_msg = self._check_rcon_availability(sender_id, adapter)
+        is_available, error_msg = await self._check_rcon_availability(sender_id, adapter)
         if not is_available:
             return False, error_msg
         

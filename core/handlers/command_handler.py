@@ -6,11 +6,15 @@ from astrbot import logger
 import base64, uuid
 from astrbot.core.star.star_tools import StarTools
 import os
-import json
 
 
 class AdapterNotFoundError(Exception):
     """当找不到适配器时引发的异常"""
+    pass
+
+
+class ApiRequestFailedError(Exception):
+    """API请求未能发出时引发的异常"""
     pass
 
 
@@ -321,71 +325,42 @@ mc:
             return "❌ Minecraft适配器未连接，请检查连接状态"
         
         try:
-            # 发送获取玩家列表的API请求
-            api_request = {
-                "api": "get_player_list",
-                "data": {}
-            }
-            
-            logger.debug(f"发送获取玩家列表请求: {api_request}")
-            success = await adapter.websocket_manager.send_message(api_request)
-            
-            if not success:
-                return "❌ 请求失败，请检查是否为mcdr插件或网络连接"
-            
-            # 等待响应 (创建一个简单的响应等待机制)
-            response = await self._wait_for_api_response(adapter, "get_player_list", timeout=5)
-            
-            if not response:
-                return "❌ 请求超时，请检查是否为mcdr插件或网络连接"
-            
-            return self._format_player_list_response(response)
-            
+            response = await self._request_api(
+                adapter, "get_player_list", {}, timeout=5
+            )
+        except ApiRequestFailedError:
+            return "❌ 请求失败，请检查是否为mcdr插件或网络连接"
+        except asyncio.TimeoutError:
+            return "❌ 请求超时，请检查是否为mcdr插件或网络连接"
         except Exception as e:
             logger.error(f"获取玩家列表时出错: {str(e)}")
             return "❌ 请求失败，请检查是否为mcdr插件或网络连接"
-    
-    async def _wait_for_api_response(self, adapter, api_name: str, timeout: int = 5):
-        """等待API响应的辅助方法"""
-        import asyncio
-        import time
-        
-        # 设置响应等待器
-        adapter.api_response_waiter = None
-        start_time = time.time()
-        
-        # 创建一个临时的消息处理器来捕获API响应
-        original_handler = adapter.websocket_manager.message_handler
-        response_data = None
-        
-        async def temp_message_handler(message: str):
-            nonlocal response_data
-            try:
-                data = json.loads(message)
-                # 检查是否是我们期待的API响应
-                if (data.get("api") == api_name or 
-                    (data.get("data", {}).get("players") is not None and api_name == "get_player_list")):
-                    response_data = data
-                    return
-            except:
-                pass
-            # 如果不是API响应，继续使用原始处理器
-            if original_handler:
-                await original_handler(message)
-        
-        # 临时替换消息处理器
-        adapter.websocket_manager.set_message_handler(temp_message_handler)
-        
+
+        return self._format_player_list_response(response)
+
+    async def _request_api(self, adapter, api_name: str, data: dict, timeout: int = 5):
+        """发送API请求并等待对应的响应。
+
+        等待器在发送之前登记，避免服务端秒回时响应被漏掉；按 echo 分发，
+        并发调用不会互相抢占对方的响应。
+        """
+        echo = uuid.uuid4().hex
+        ws_manager = adapter.websocket_manager
+
+        # 必须先登记等待器，再发送请求
+        future = ws_manager.register_api_waiter(echo, api_name)
         try:
-            # 等待响应
-            while time.time() - start_time < timeout and response_data is None:
-                await asyncio.sleep(0.1)
-            
-            return response_data
+            api_request = {"api": api_name, "data": data, "echo": echo}
+            logger.debug(f"发送API请求: {api_request}")
+
+            if not await ws_manager.send_message(api_request):
+                raise ApiRequestFailedError(api_name)
+
+            return await asyncio.wait_for(future, timeout=timeout)
         finally:
-            # 恢复原始消息处理器
-            adapter.websocket_manager.set_message_handler(original_handler)
-    
+            ws_manager.cancel_api_waiter(echo)
+
+
     def _format_player_list_response(self, response):
         """格式化玩家列表响应"""
         try:
