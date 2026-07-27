@@ -231,9 +231,85 @@ class WebSocketManager:
 
         self.message_handler: Optional[Callable[[str], Awaitable[None]]] = None
 
+        # 待响应的 API 请求：echo -> (api_name, Future)
+        self._pending_api: Dict[str, Tuple[str, "asyncio.Future"]] = {}
+
     def set_message_handler(self, handler: Callable[[str], Awaitable[None]]):
         """设置消息处理回调函数"""
         self.message_handler = handler
+
+    # ------------------------------------------------------------------
+    # API 请求-响应分发
+    # ------------------------------------------------------------------
+    def register_api_waiter(self, echo: str, api_name: str) -> "asyncio.Future":
+        """登记一个等待中的 API 请求，返回用于接收响应的 Future。
+
+        必须在 send_message 之前调用，否则服务端的快速响应会被漏掉。
+        """
+        future: asyncio.Future = asyncio.get_running_loop().create_future()
+        self._pending_api[echo] = (api_name, future)
+        return future
+
+    def cancel_api_waiter(self, echo: str):
+        """移除等待者（超时或异常时清理，避免泄漏）"""
+        self._pending_api.pop(echo, None)
+
+    def _resolve_api_response(self, message: str) -> bool:
+        """尝试把消息投递给等待中的 API 请求。
+
+        Returns:
+            bool: True 表示该消息已被消费，不再交给普通消息处理器。
+        """
+        if not self._pending_api:
+            return False
+
+        try:
+            data = json.loads(message)
+        except Exception:
+            return False
+
+        if not isinstance(data, dict) or "status" not in data:
+            return False
+
+        echo = data.get("echo")
+        entry = self._pending_api.get(echo) if echo else None
+
+        # 兼容不回显 echo 的旧版鹊桥：按 api 名唯一匹配一个等待者
+        if entry is None:
+            api_name = self._guess_api_name(data)
+            if api_name is None:
+                return False
+            candidates = [
+                (key, value)
+                for key, value in self._pending_api.items()
+                if value[0] == api_name
+            ]
+            if len(candidates) != 1:
+                return False
+            echo, entry = candidates[0]
+
+        self._pending_api.pop(echo, None)
+        _, future = entry
+        if not future.done():
+            future.set_result(data)
+        return True
+
+    @staticmethod
+    def _guess_api_name(data: dict) -> Optional[str]:
+        """从响应体反推它属于哪个 API（仅用于兼容无 echo 的旧版本）"""
+        payload = data.get("data")
+        if not isinstance(payload, dict):
+            return None
+        if payload.get("players") is not None:
+            return "get_player_list"
+        return None
+
+    async def _dispatch_message(self, message: str):
+        """接收循环统一入口：先给 API 等待者，其余交给普通处理器。"""
+        if self._resolve_api_response(message):
+            return
+        if self.message_handler:
+            await self.message_handler(message)
 
     def _is_fatal_error(self, error) -> bool:
         """判断是否为致命错误（不应重试）"""
@@ -277,8 +353,7 @@ class WebSocketManager:
 
                     async for message in websocket:
                         logger.debug(f"原始 WebSocket 消息: {message}")
-                        if self.message_handler:
-                            await self.message_handler(message)
+                        await self._dispatch_message(message)
 
             except (
                 websockets.exceptions.ConnectionClosed,
@@ -381,13 +456,12 @@ class WebSocketManager:
                 logger.debug(
                     f"[{self.server_name}] 反向 WS 原始消息: {message}"
                 )
-                if self.message_handler:
-                    try:
-                        await self.message_handler(message)
-                    except Exception as e:
-                        logger.error(
-                            f"[{self.server_name}] 处理反向 WS 消息出错: {e}"
-                        )
+                try:
+                    await self._dispatch_message(message)
+                except Exception as e:
+                    logger.error(
+                        f"[{self.server_name}] 处理反向 WS 消息出错: {e}"
+                    )
         except websockets.exceptions.ConnectionClosed as e:
             logger.warning(
                 f"[{self.server_name}] 反向 WS 连接关闭: code={e.code}, "
