@@ -45,6 +45,7 @@ def _ensure_astrbot_stub():
     platform.MessageType = object
     event = types.ModuleType("astrbot.api.event")
     event.AstrMessageEvent = object
+    event.MessageChain = object
     event.filter = types.SimpleNamespace()
 
     core = types.ModuleType("astrbot.core")

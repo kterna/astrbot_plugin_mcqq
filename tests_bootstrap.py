@@ -20,3 +20,31 @@ if _PKG_NAME not in sys.modules:
 
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+# Standalone stub for astrbot modules so tests can import core.* freely
+if "astrbot" not in sys.modules:
+    astrbot = types.ModuleType("astrbot")
+    api = types.ModuleType("astrbot.api")
+    event = types.ModuleType("astrbot.api.event")
+    all_module = types.ModuleType("astrbot.api.all")
+
+    class MessageChain:
+        pass
+
+    event.MessageChain = MessageChain
+    all_module.MessageChain = MessageChain
+    api.event = event
+    api.all = all_module
+    astrbot.api = api
+
+    class _Logger:
+        def info(self, *a, **k): pass
+        def warning(self, *a, **k): pass
+        def error(self, *a, **k): pass
+        def debug(self, *a, **k): pass
+
+    astrbot.logger = _Logger()
+    sys.modules["astrbot"] = astrbot
+    sys.modules["astrbot.api"] = api
+    sys.modules["astrbot.api.event"] = event
+    sys.modules["astrbot.api.all"] = all_module
