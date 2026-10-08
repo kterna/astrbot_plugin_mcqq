@@ -135,6 +135,11 @@ async def test_server_identity_rate_and_invalid_configuration(rig):
         b.config["rcon_rate_limit_per_sec"] = bad
         result = await manager.execute_detailed("say blocked", "admin", b)
         assert result.status == OutcomeStatus.REJECTED
+    b.config["rcon_rate_limit_per_sec"] = 1
+    for bad in (0, -1, float("nan"), float("inf")):
+        b.config["rcon_command_timeout_sec"] = bad
+        result = await manager.execute_detailed("say blocked", "admin", b)
+        assert result.status == OutcomeStatus.REJECTED
     assert len(calls) == 3
 
 
@@ -147,6 +152,9 @@ async def test_whitelist_confirmation_and_server_scope(rig):
     assert "Added Steve" in await handler.handle_rcon_command(Event(command))
     assert manager.whitelist_manager.is_whitelisted(manager.server_identity(b), "Steve")
     assert not manager.whitelist_manager.is_whitelisted(manager.server_identity(a), "Steve")
+    replies[("srv-b", "whitelist add Alex")] = "Unknown player"
+    assert "状态未更新" in await handler.handle_rcon_command(Event('/rcon whitelist {"action":"add","player":"Alex","server":"srv-b"}'))
+    assert not manager.whitelist_manager.is_whitelisted(manager.server_identity(b), "Alex")
     replies[("srv-b", "whitelist remove Steve")] = "Unknown player"
     result = await handler.handle_rcon_command(Event('/rcon whitelist {"action":"remove","player":"Steve","server":"srv-b"}'))
     assert "状态未更新" in result
@@ -177,8 +185,8 @@ async def test_batch_abort_continue_unknown_presend_and_cancellation(rig):
     assert [line.split(":")[0].split(". ")[1] for line in text.splitlines()] == ["confirmed", "rejected", "confirmed"]
     replies[("srv-a", "say disconnect")] = "disconnect"
     replies[("srv-a", "say timeout")] = "timeout"
-    results = await manager.execute_batch(["say disconnect", "say timeout"], "admin", a)
-    assert [r.status for r in results] == [OutcomeStatus.PRE_SEND_FAILURE, OutcomeStatus.UNKNOWN]
+    text = await handler.handle_rcon_command(batch(["say disconnect", "say timeout"], "continue"))
+    assert [line.split(":")[0].split(". ")[1] for line in text.splitlines()] == ["pre_send_failure", "unknown"]
     assert calls.count(("srv-a", "say timeout")) == 1
     replies[("srv-a", "say cancel")] = "cancel"
     with pytest.raises(asyncio.CancelledError):
