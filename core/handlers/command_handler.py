@@ -144,17 +144,10 @@ class CommandHandler:
             if group_id:
                 status_msg += f"   绑定: {'✅ 已绑定' if is_bound else '❌ 未绑定'}\n"
             
-            # 如果未连接，尝试手动启动连接
             if not is_connected:
-                try:
-                    adapter.websocket_manager.connected = False
-                    adapter.websocket_manager.websocket = None
-                    adapter.websocket_manager.should_reconnect = True
-                    adapter.websocket_manager.total_retries = 0
-                    asyncio.create_task(adapter.websocket_manager.start())
-                    status_msg += f"   状态: ⏳ 正在尝试重连...\n"
-                except Exception as e:
-                    status_msg += f"   状态: ❌ 重连失败: {str(e)}\n"
+                manager = adapter.websocket_manager
+                state = "⏳ 等待连接/重连" if manager.should_reconnect else "⏹️ 已停止"
+                status_msg += f"   状态: {state}\n"
             
         return status_msg
     

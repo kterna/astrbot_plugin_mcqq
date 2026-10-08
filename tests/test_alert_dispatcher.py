@@ -1,55 +1,64 @@
-"""Unit tests for AlertDispatcher."""
+"""Alert delivery outcome and bounded deduplication tests."""
+import asyncio
 
 import pytest
-import asyncio
+
 from core.routing.alert_dispatcher import AlertDispatcher, AlertPayload, AlertSeverity
 
 
-@pytest.mark.asyncio
-async def test_alert_dispatch_and_dedup():
-    sent_payloads = []
-    async def mock_sender(payload):
-        sent_payloads.append(payload)
-
-    dispatcher = AlertDispatcher(dedup_window_sec=0.5, webhook_sender=mock_sender)
-
-    alert1 = AlertPayload(
-        server_name="lobby",
-        severity=AlertSeverity.WARN,
-        title="High Memory Usage",
-        message="Memory exceeds 90%"
+def alert(generation=1):
+    return AlertPayload(
+        server_name="lobby", severity=AlertSeverity.WARN,
+        title="connection_disconnected", message="transport_closed",
+        generation=generation,
     )
-
-    # First dispatch succeeds
-    res1 = await dispatcher.dispatch(alert1)
-    assert res1 is True
-    assert len(sent_payloads) == 1
-
-    # Immediate duplicate is suppressed
-    res2 = await dispatcher.dispatch(alert1)
-    assert res2 is False
-    assert len(sent_payloads) == 1
-
-    # After window expires, dispatch allowed again
-    await asyncio.sleep(0.55)
-    res3 = await dispatcher.dispatch(alert1)
-    assert res3 is True
-    assert len(sent_payloads) == 2
 
 
 @pytest.mark.asyncio
-async def test_alert_timeout_tolerance():
-    async def slow_sender(payload):
-        await asyncio.sleep(10.0) # Hangs
+async def test_delivered_suppressed_and_bounded_history():
+    sent = []
+    async def sender(payload):
+        sent.append(payload)
 
-    dispatcher = AlertDispatcher(dedup_window_sec=1.0, webhook_sender=slow_sender)
-    alert = AlertPayload(
-        server_name="survival",
-        severity=AlertSeverity.CRITICAL,
-        title="Crash Alert",
-        message="Server down"
-    )
+    dispatcher = AlertDispatcher(dedup_window_sec=0.03, max_history=2, webhook_sender=sender)
+    first = await dispatcher.dispatch(alert())
+    assert first.status == "delivered" and first.attempted and first.delivered
+    duplicate = await dispatcher.dispatch(alert())
+    assert duplicate.status == "suppressed" and not duplicate.attempted
+    assert len(sent) == 1
+    await asyncio.sleep(0.04)
+    assert (await dispatcher.dispatch(alert())).status == "delivered"
+    assert len(sent) == 2
+    await dispatcher.dispatch(alert(2))
+    await dispatcher.dispatch(alert(3))
+    assert len(dispatcher._history) == 2
 
-    # Must complete safely without raising TimeoutError
-    res = await dispatcher.dispatch(alert)
-    assert res is True
+
+@pytest.mark.asyncio
+async def test_failure_observable_and_retry_bounded():
+    calls = 0
+    async def failing(payload):
+        nonlocal calls
+        calls += 1
+        raise OSError("test sender failure")
+
+    dispatcher = AlertDispatcher(webhook_sender=failing, failure_retry_sec=0.02)
+    failed = await dispatcher.dispatch(alert())
+    assert failed.status == "failed" and failed.attempted and not failed.delivered
+    assert failed.error == "OSError"
+    assert (await dispatcher.dispatch(alert())).status == "suppressed"
+    assert calls == 1
+    await asyncio.sleep(0.03)
+    assert (await dispatcher.dispatch(alert())).status == "failed"
+    assert calls == 2
+
+
+@pytest.mark.asyncio
+async def test_timeout_and_unconfigured_are_not_delivery():
+    async def slow(payload):
+        await asyncio.sleep(10)
+
+    dispatcher = AlertDispatcher(webhook_sender=slow, send_timeout=0.02)
+    result = await dispatcher.dispatch(alert())
+    assert result.status == "failed" and result.error == "TimeoutError"
+    assert (await AlertDispatcher().dispatch(alert())).status == "unconfigured"

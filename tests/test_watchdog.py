@@ -1,30 +1,25 @@
-"""Unit tests for WebSocketWatchdog."""
+"""Passive health recorder never infers a missing pong from time alone."""
+import asyncio
 
 import pytest
-import asyncio
+
 from core.managers.watchdog import WebSocketWatchdog
 
 
 @pytest.mark.asyncio
-async def test_watchdog_registration_and_pong():
-    disconnected = []
-    async def on_dc(srv):
-        disconnected.append(srv)
-
-    dog = WebSocketWatchdog(max_missed_pings=2, disconnect_callback=on_dc)
-    dog.register_connection("mc_survival")
-
-    # Pass 1
-    zombies = await dog.check_once()
-    assert len(zombies) == 0
-    assert dog.states["mc_survival"].unanswered_pings == 1
-
-    # Receive pong -> resets count
-    dog.record_pong("mc_survival")
-    assert dog.states["mc_survival"].unanswered_pings == 0
-
-    # Pass 1 & 2 without pong
-    await dog.check_once()
-    zombies = await dog.check_once()
-    assert "mc_survival" in zombies
-    assert "mc_survival" in disconnected
+async def test_passive_health_requires_transport_transition():
+    health = WebSocketWatchdog("survival")
+    assert health.record_connected(7)
+    first = health.snapshot()
+    assert first.connected and first.connected_at is not None
+    await asyncio.sleep(0.02)  # A scheduler tick is no disconnect evidence.
+    assert health.snapshot().connected
+    assert health.record_disconnected(6, "stale_socket") is False
+    assert health.record_disconnected(7, "keepalive_timeout") is True
+    assert health.record_disconnected(7, "keepalive_timeout") is False
+    state = health.snapshot()
+    assert state.disconnect_count == 1
+    assert state.disconnect_cause == "keepalive_timeout"
+    assert state.disconnected_at >= first.connected_at
+    assert health.record_connected(8)
+    assert health.snapshot().connected

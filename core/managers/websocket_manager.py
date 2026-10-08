@@ -1,9 +1,13 @@
 import asyncio
 import json
+import threading
+from collections import deque
 from typing import Awaitable, Callable, Dict, Optional, Tuple
 from urllib.parse import unquote_plus
 
 from core.utils.player_cache import PlayerListCache
+from core.managers.watchdog import WebSocketWatchdog
+from core.routing.alert_dispatcher import AlertDispatcher, AlertPayload, AlertSeverity
 
 import websockets
 from astrbot import logger
@@ -11,13 +15,16 @@ from astrbot import logger
 
 # 共享反向 WebSocket 服务端：(host, port) -> SharedReverseServer
 _SHARED_SERVERS: Dict[Tuple[str, int], "SharedReverseServer"] = {}
-_SHARED_LOCK = asyncio.Lock()
+_SHARED_LOCK = threading.RLock()
 
 
 class SharedReverseServer:
     """可被多个适配器共用的反向 WebSocket 服务端，按 x-self-name 路由。"""
 
-    def __init__(self, host: str, port: int, path: str):
+    def __init__(self, host: str, port: int, path: str,
+                 ping_interval: float = 30, ping_timeout: float = 10):
+        self.ping_interval = ping_interval
+        self.ping_timeout = ping_timeout
         self.host = host
         self.port = port
         self.path = path if path.startswith("/") else f"/{path}"
@@ -50,8 +57,9 @@ class SharedReverseServer:
                 self.host,
                 self.port,
                 process_request=self._process_request,
-                ping_interval=30,
-                ping_timeout=10,
+                ping_interval=self.ping_interval,
+                ping_timeout=self.ping_timeout,
+                close_timeout=1,
             )
             self._running = True
             logger.info(
@@ -199,6 +207,9 @@ class WebSocketManager:
         server_name: str = "Server",
         access_token: str = "",
         allow_replace_connection: bool = True,
+        ping_interval: float = 30,
+        ping_timeout: float = 10,
+        alert_dispatcher: Optional[AlertDispatcher] = None,
     ):
         self.mode = (mode or "client").strip().lower()
         if self.mode not in ("client", "server"):
@@ -218,6 +229,8 @@ class WebSocketManager:
         self.server_name = server_name
         self.access_token = access_token or ""
         self.allow_replace_connection = allow_replace_connection
+        self.ping_interval = ping_interval
+        self.ping_timeout = ping_timeout
 
         # 连接状态
         self.connected = False
@@ -230,6 +243,14 @@ class WebSocketManager:
         self._client_gone = asyncio.Event()
         self._closed = asyncio.Event()
         self._send_lock = asyncio.Lock()
+        self._stop_event = asyncio.Event()
+        self._start_task: Optional[asyncio.Task] = None
+        self._closing = False
+        self.health = WebSocketWatchdog(self.server_name)
+        self.alert_dispatcher = alert_dispatcher or AlertDispatcher()
+        self.alert_results = deque(maxlen=32)
+        self._alert_tasks = set()
+        self._had_disconnect = False
 
         self.message_handler: Optional[Callable[[str], Awaitable[None]]] = None
 
@@ -253,23 +274,62 @@ class WebSocketManager:
                 future.set_exception(ConnectionError(reason))
         self._pending_api.clear()
 
+    def _queue_alert(self, title: str, severity: AlertSeverity,
+                     cause: str, generation: int):
+        alert = AlertPayload(
+            server_name=self.server_name, severity=severity, title=title,
+            message=cause, generation=generation,
+        )
+        async def deliver():
+            result = await self.alert_dispatcher.dispatch(alert)
+            self.alert_results.append(result)
+            if result.status == "failed":
+                logger.warning(f"[{self.server_name}] 连接告警发送失败: {result.error}")
+            elif result.status == "unconfigured":
+                logger.info(f"[{self.server_name}] 连接状态变化，未配置告警发送器: {title}")
+
+        task = asyncio.create_task(deliver())
+        self._alert_tasks.add(task)
+        task.add_done_callback(self._alert_tasks.discard)
+
+    @staticmethod
+    def _disconnect_cause(error) -> str:
+        if error is None:
+            return "transport_closed"
+        if "keepalive ping timeout" in str(error).lower():
+            return "keepalive_timeout"
+        return f"transport_error:{type(error).__name__}"
+
     def _activate_connection(self, websocket):
+        recovered = self._had_disconnect
         self.connection_generation += 1
         self.invalidate_player_list()
         self._abort_api_waiters("WebSocket connection replaced")
         self.websocket = websocket
         self.connected = True
+        self.health.record_connected(self.connection_generation)
+        self._had_disconnect = False
+        if recovered and not self._closing:
+            self._queue_alert("connection_recovered", AlertSeverity.INFO,
+                              "transport_open", self.connection_generation)
 
-    def _drop_connection(self, websocket=None):
+    def _drop_connection(self, websocket=None, error=None, shutdown=False):
         if websocket is not None and websocket is not self.websocket:
             return
         if self.websocket is None and not self.connected:
             return
+        generation = self.connection_generation
+        cause = "shutdown" if shutdown else self._disconnect_cause(error)
+        transition = self.health.record_disconnected(generation, cause)
         self.connection_generation += 1
         self.invalidate_player_list()
         self._abort_api_waiters("WebSocket disconnected")
         self.websocket = None
         self.connected = False
+        if transition and not shutdown and not self._closing:
+            self._had_disconnect = True
+            self._queue_alert("connection_disconnected", AlertSeverity.WARN,
+                              cause, generation)
 
     @staticmethod
     def _valid_player_list(response) -> bool:
@@ -319,6 +379,10 @@ class WebSocketManager:
             try:
                 response = await asyncio.shield(task)
             except Exception:
+                if self._closing:
+                    # A manager shutdown is cancellation of its coalesced
+                    # caller, rather than a user-visible transport failure.
+                    raise asyncio.CancelledError()
                 if (self.connection_generation, self._player_list_epoch) != (generation, epoch):
                     if self.connected:
                         continue
@@ -343,6 +407,10 @@ class WebSocketManager:
         必须在 send_message 之前调用，否则服务端的快速响应会被漏掉。
         """
         future: asyncio.Future = asyncio.get_running_loop().create_future()
+        # A shutdown can race cancellation of the task awaiting this Future.
+        future.add_done_callback(
+            lambda done: None if done.cancelled() else done.exception()
+        )
         self._pending_api[echo] = (api_name, future)
         return future
 
@@ -428,13 +496,31 @@ class WebSocketManager:
         return False
 
     async def start(self):
-        """启动 WebSocket（client 循环 或 server 监听）。"""
+        """Start one owned transport loop; close() can wake and await it."""
+        current = asyncio.current_task()
+        if self._start_task is not None and self._start_task is not current:
+            if not self._start_task.done():
+                return
+        self._start_task = current
+        self._closing = False
         self.should_reconnect = True
+        self._stop_event.clear()
         self._closed.clear()
-        if self.mode == "server":
-            await self._start_server_mode()
-        else:
-            await self._start_client_mode()
+        try:
+            if self.mode == "server":
+                await self._start_server_mode()
+            else:
+                await self._start_client_mode()
+        finally:
+            self._closed.set()
+            if self._start_task is current:
+                self._start_task = None
+
+    async def _wait_retry(self, seconds: float):
+        try:
+            await asyncio.wait_for(self._stop_event.wait(), timeout=max(0, seconds))
+        except asyncio.TimeoutError:
+            pass
 
     async def _start_client_mode(self):
         """正向：作为 Client 连接鹊桥 Server。"""
@@ -443,10 +529,14 @@ class WebSocketManager:
                 async with websockets.connect(
                     self.ws_url,
                     additional_headers=self.headers,
-                    ping_interval=30,
-                    ping_timeout=10,
+                    ping_interval=self.ping_interval,
+                    ping_timeout=self.ping_timeout,
+                    close_timeout=1,
                     proxy=None,
                 ) as websocket:
+                    if self._closing or not self.should_reconnect:
+                        await websocket.close()
+                        break
                     self._activate_connection(websocket)
                     self.total_retries = 0
                     logger.info(
@@ -465,7 +555,7 @@ class WebSocketManager:
                 asyncio.TimeoutError,
                 OSError,
             ) as e:
-                self._drop_connection()
+                self._drop_connection(error=e)
 
                 if not self.should_reconnect:
                     break
@@ -492,26 +582,27 @@ class WebSocketManager:
                     f"将在{wait_time}秒后尝试重新连接..."
                     f"(第{self.total_retries}次)"
                 )
-                await asyncio.sleep(wait_time)
+                await self._wait_retry(wait_time)
 
             except Exception as e:
-                self._drop_connection()
+                self._drop_connection(error=e)
                 logger.error(f"WebSocket 处理未知错误: {e}")
                 if not self.should_reconnect:
                     break
-                await asyncio.sleep(self.reconnect_interval)
+                await self._wait_retry(self.reconnect_interval)
 
         self._drop_connection()
         self._closed.set()
 
     async def _start_server_mode(self):
         """反向：作为 Server 等待鹊桥 Client 连入。"""
-        async with _SHARED_LOCK:
+        with _SHARED_LOCK:
             key = (self.server_host, self.server_port)
             shared = _SHARED_SERVERS.get(key)
             if shared is None:
                 shared = SharedReverseServer(
-                    self.server_host, self.server_port, self.server_path
+                    self.server_host, self.server_port, self.server_path,
+                    self.ping_interval, self.ping_timeout,
                 )
                 _SHARED_SERVERS[key] = shared
             # 同端口 path 不一致时告警
@@ -538,6 +629,9 @@ class WebSocketManager:
 
     async def _on_server_client_connected(self, websocket):
         """server 模式：处理单个鹊桥 Client 连接生命周期。"""
+        if self._closing or not self.should_reconnect:
+            await websocket.close(1001, "Manager closing")
+            return
         # Publish the new generation before closing the old transport.
         old = self.websocket
         self._activate_connection(websocket)
@@ -549,6 +643,7 @@ class WebSocketManager:
         self._client_gone.clear()
         logger.info(f"[{self.server_name}] 反向 WebSocket 已建立")
 
+        disconnect_error = None
         try:
             async for message in websocket:
                 logger.debug(
@@ -561,25 +656,28 @@ class WebSocketManager:
                         f"[{self.server_name}] 处理反向 WS 消息出错: {e}"
                     )
         except websockets.exceptions.ConnectionClosed as e:
+            disconnect_error = e
             logger.warning(
                 f"[{self.server_name}] 反向 WS 连接关闭: code={e.code}, "
                 f"reason={e.reason}"
             )
         except Exception as e:
+            disconnect_error = e
             logger.error(f"[{self.server_name}] 反向 WS 连接异常: {e}")
         finally:
-            self._drop_connection(websocket)
+            self._drop_connection(websocket, error=disconnect_error)
             self._client_gone.set()
             logger.info(f"[{self.server_name}] 反向 WebSocket 已断开")
 
     async def _detach_from_shared_server(self):
-        if self._shared_server is None:
-            return
-        async with _SHARED_LOCK:
-            self._shared_server.unregister(self.server_name)
-            key = (self._shared_server.host, self._shared_server.port)
-            if self._shared_server.is_empty:
-                await self._shared_server.stop()
+        with _SHARED_LOCK:
+            shared = self._shared_server
+            if shared is None:
+                return
+            shared.unregister(self.server_name)
+            key = (shared.host, shared.port)
+            if shared.is_empty:
+                await shared.stop()
                 _SHARED_SERVERS.pop(key, None)
             self._shared_server = None
 
@@ -599,10 +697,12 @@ class WebSocketManager:
 
     async def close(self):
         """关闭 WebSocket 连接 / 服务端。"""
+        self._closing = True
         self.should_reconnect = False
+        self._stop_event.set()
 
         ws = self.websocket
-        self._drop_connection()
+        self._drop_connection(shutdown=True)
         flights = list(self._player_list_flights.values())
         for task in flights:
             task.cancel()
@@ -619,6 +719,21 @@ class WebSocketManager:
 
         if self.mode == "server":
             await self._detach_from_shared_server()
+
+        alerts = list(self._alert_tasks)
+        for task in alerts:
+            task.cancel()
+        if alerts:
+            await asyncio.gather(*alerts, return_exceptions=True)
+        self._alert_tasks.clear()
+
+        start_task = self._start_task
+        if start_task is not None and start_task is not asyncio.current_task():
+            try:
+                await asyncio.wait_for(asyncio.shield(start_task), timeout=5)
+            except asyncio.TimeoutError:
+                start_task.cancel()
+                await asyncio.gather(start_task, return_exceptions=True)
 
         logger.info(
             f"WebSocket 已关闭 (mode={self.mode}, server_name={self.server_name})"

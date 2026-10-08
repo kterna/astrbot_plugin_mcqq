@@ -1,73 +1,48 @@
-"""Reverse WebSocket Heartbeat Watchdog and Zombie Connection Auto-Healer."""
+"""Passive WebSocket lifecycle health, driven only by transport observations.
 
-import asyncio
+The websockets library owns ping/pong and closes a connection after a missing
+acknowledgement exceeds ping_timeout. This recorder never sends another ping or
+infers a missing pong from scheduler ticks.
+"""
+from dataclasses import dataclass, replace
 import time
-from typing import Callable, Coroutine, Dict, Optional, Set
-from dataclasses import dataclass
 
 
 @dataclass
-class ConnectionHeartbeatState:
+class ConnectionHealthState:
     server_name: str
-    last_ping_time: float
-    last_pong_time: float
-    unanswered_pings: int = 0
-    is_alive: bool = True
+    generation: int = 0
+    connected: bool = False
+    connected_at: float | None = None
+    disconnected_at: float | None = None
+    disconnect_cause: str | None = None
+    disconnect_count: int = 0
 
 
 class WebSocketWatchdog:
-    """
-    Watches reverse websocket connections, emitting heartbeats and
-    terminating zombie connections exceeding unacknowledged threshold.
-    """
-    def __init__(
-        self,
-        ping_interval: float = 3.0,
-        pong_timeout: float = 5.0,
-        max_missed_pings: int = 3,
-        disconnect_callback: Optional[Callable[[str], Coroutine]] = None
-    ):
-        self.ping_interval = ping_interval
-        self.pong_timeout = pong_timeout
-        self.max_missed_pings = max_missed_pings
-        self.disconnect_callback = disconnect_callback
-        self.states: Dict[str, ConnectionHeartbeatState] = {}
-        self._running = False
-        self._task: Optional[asyncio.Task] = None
+    """Record at most one disconnect transition per connected generation."""
 
-    def register_connection(self, server_name: str):
-        now = time.monotonic()
-        self.states[server_name] = ConnectionHeartbeatState(
-            server_name=server_name,
-            last_ping_time=now,
-            last_pong_time=now,
-            unanswered_pings=0,
-            is_alive=True
-        )
+    def __init__(self, server_name: str):
+        self.state = ConnectionHealthState(server_name=server_name)
 
-    def record_pong(self, server_name: str):
-        now = time.monotonic()
-        if server_name in self.states:
-            st = self.states[server_name]
-            st.last_pong_time = now
-            st.unanswered_pings = 0
-            st.is_alive = True
+    def record_connected(self, generation: int) -> bool:
+        if generation <= self.state.generation:
+            return False
+        self.state.generation = generation
+        self.state.connected = True
+        self.state.connected_at = time.monotonic()
+        self.state.disconnected_at = None
+        self.state.disconnect_cause = None
+        return True
 
-    def unregister_connection(self, server_name: str):
-        self.states.pop(server_name, None)
+    def record_disconnected(self, generation: int, cause: str) -> bool:
+        if not self.state.connected or self.state.generation != generation:
+            return False
+        self.state.connected = False
+        self.state.disconnected_at = time.monotonic()
+        self.state.disconnect_cause = cause
+        self.state.disconnect_count += 1
+        return True
 
-    async def check_once(self) -> Set[str]:
-        """Run single healthcheck pass, returning zombie servers that timed out."""
-        zombies = set()
-        for srv, state in list(self.states.items()):
-            state.unanswered_pings += 1
-            if state.unanswered_pings >= self.max_missed_pings:
-                state.is_alive = False
-                zombies.add(srv)
-                if self.disconnect_callback:
-                    try:
-                        # P0: Timeout protected callback
-                        await asyncio.wait_for(self.disconnect_callback(srv), timeout=2.0)
-                    except Exception:
-                        pass
-        return zombies
+    def snapshot(self) -> ConnectionHealthState:
+        return replace(self.state)
