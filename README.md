@@ -150,6 +150,11 @@ websocket_client:
 - `rcon_host`: RCON 地址。
 - `rcon_port`: RCON 端口。
 - `rcon_password`: RCON 密码 (必填)。
+- `rcon_allowed_commands`: 额外允许的 RCON 写入指令名或两词子指令列表，例如 `["whitelist add", "whitelist remove", "time set"]`。默认 `[]`；完整保护名单（包括 `op`、`stop`、`whitelist off`）始终禁止。配置条目必须是列表，最多 64 项；不能使用通配符。
+- `rcon_rate_limit_per_sec`: 每个服务器身份的令牌桶速率与初始容量，默认 `5`，必须是大于等于 1 的有限数字。读取指令消耗 0.2，写入指令消耗 1。最多保留 128 个服务器身份；超出时新身份的指令被拒绝。
+- `rcon_command_timeout_sec`: 单次 RCON 等待上限，默认 `10` 秒，必须是 `(0, 120]` 的有限数字。超时后结果未知，连接会在下一次请求前重新建立。
+
+RCON 现在默认允许 `list`、`seed`、`status`、`tps`、`ping`、`help`、`time query`、`whitelist list`，以及兼容旧用法的 `say`。其他写入指令须在对应适配器上明确配置。配置错误会拒绝指令，不会退回为无限制执行。身份由适配器 ID、RCON 主机和端口组成；每个身份独立限流和连接。更改连接地址或密码后请重启插件，避免旧连接继续使用旧配置。
 
 > **反向模式注意**：
 > 1. 需要在防火墙 / 云安全组放行 `ws_server_port`。
@@ -182,6 +187,15 @@ websocket_client:
 
 - `rcon <指令>`
   - **功能**: 通过 RCON 在**主服务器**上执行指令。
+  - **权限**: 管理员
+  - **语法**: RCON 控制台指令以不带 `/` 的形式发送；可输入一个开头的 `/`，发送前会移除。仅接受单行 ASCII 空格；首尾空格会移除，中间重复空格原样发送。换行、制表符、控制字符、空指令及多个开头 `/` 会被拒绝。策略检查忽略指令名大小写，并识别 `minecraft:` 命名空间；其他命名空间需按原名显式配置。插件别名无法安全推断，需逐项确认服务器实际解析方式。
+
+- `rcon whitelist {"action":"add","player":"Steve","server":"minecraft_server_1"}`
+  - **功能**: 在指定适配器上添加或移除白名单玩家；`action` 可为 `add` 或 `remove`，`server` 可省略并使用主服务器。玩家名须严格匹配 3–16 位 ASCII 字母、数字或下划线。先在该适配器的 `rcon_allowed_commands` 中加入 `whitelist add` / `whitelist remove`。普通 `rcon whitelist add Steve` 也经过相同验证。只有收到标准服务器成功响应才更新内存中的本地白名单记录；其他响应标为结果未知，需向服务器核对。内存记录不是服务器白名单的持久镜像。
+  - **权限**: 管理员
+
+- `rcon batch {"policy":"abort","commands":["list","seed"],"server":"minecraft_server_1"}`
+  - **功能**: 在指定适配器上依次执行 1–20 条指令。`policy` 必须是 `abort` 或 `continue`，`server` 可省略。只接受所示 JSON 字段，不接受重复键。每条指令都独立经过相同策略和限流，并返回 `confirmed`、`rejected`、`pre_send_failure`、`unknown` 或 `skipped`。`abort` 会把后续指令标为 `skipped`；批次不提供原子回滚。超时或发送后异常可能已在服务器生效，不自动重试；取消请求会停止后续执行。一般指令的 `confirmed` 表示收到了 RCON 响应，不能保证游戏逻辑成功。
   - **权限**: 管理员
 
 - `rcon 重启`
@@ -241,7 +255,7 @@ websocket_client:
   2.  主服务器（第一个适配器）的 RCON 配置是否已启用并正确填写。
   3.  MC 服务器的 `server.properties` 文件中是否已启用 RCON。
   4.  服务器防火墙是否已放行 RCON 端口。
-  5.  该功能目前只对第一个配置的服务器生效。
+  5.  检查指令是否在默认允许范围或对应适配器的 `rcon_allowed_commands` 中；结构化白名单和批次可指定其他服务器 ID。
 
 **Q: 连接状态显示"未连接"怎么办？**
 **A:** 请检查：

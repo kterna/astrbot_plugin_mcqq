@@ -1,5 +1,7 @@
 """命令处理器模块，集中管理所有命令的处理逻辑"""
 import asyncio
+import json
+import re
 from typing import Optional
 from astrbot.api.event import AstrMessageEvent
 from astrbot import logger
@@ -194,6 +196,8 @@ qq群:
     /mcsay - 向所有已连接的Minecraft服务器发送消息
     /rcon <指令> - 通过RCON执行Minecraft服务器指令 (仅管理员)
     /rcon 重启 - 尝试重新连接RCON服务器
+    /rcon whitelist {"action":"add","player":"Steve","server":"server_id"} - 白名单操作 (仅管理员)
+    /rcon batch {"policy":"abort","commands":["list","seed"],"server":"server_id"} - 顺序批量操作 (仅管理员)
     /mc广播设置 [富文本配置] - 设置整点广播富文本内容 (仅管理员)
     /mc广播开关 - 开启/关闭整点广播 (仅管理员)
     /mc广播测试 - 测试发送整点广播 (仅管理员)
@@ -214,12 +218,64 @@ mc:
     
     async def _handle_rcon_logic(self, event: AstrMessageEvent):
         """RCON命令的核心逻辑"""
-        command_to_execute = event.message_str.replace("rcon", "", 1).strip()
+        raw = event.message_str or ""
+        match = re.match(r"^/?rcon(?: +|$)", raw, re.IGNORECASE)
+        if not match:
+            return "❌ 无效的RCON命令格式"
+        command_to_execute = raw[match.end():].strip(" ")
+        if not command_to_execute:
+            return "❓ 请提供要执行的RCON指令，例如：/rcon list"
+        server = None
+        action = None
+        payload = None
+        if command_to_execute.startswith("batch ") or command_to_execute.startswith("whitelist {"):
+            action, _, encoded = command_to_execute.partition(" ")
+            try:
+                def unique_pairs(pairs):
+                    result = {}
+                    for key, value in pairs:
+                        if key in result:
+                            raise ValueError("duplicate key")
+                        result[key] = value
+                    return result
+                payload = json.loads(encoded, object_pairs_hook=unique_pairs)
+                if not isinstance(payload, dict):
+                    raise ValueError("object required")
+                server = payload.get("server")
+                if server is not None and (not isinstance(server, str) or not server or len(server) > 128):
+                    raise ValueError("invalid server")
+                if action == "batch":
+                    if set(payload) not in ({"commands", "policy"}, {"commands", "policy", "server"}):
+                        raise ValueError("invalid batch fields")
+                    if payload["policy"] not in ("abort", "continue"):
+                        raise ValueError("invalid policy")
+                    commands = payload["commands"]
+                    if not isinstance(commands, list) or not 1 <= len(commands) <= 20 or not all(isinstance(cmd, str) for cmd in commands):
+                        raise ValueError("invalid commands")
+                else:
+                    if set(payload) not in ({"action", "player"}, {"action", "player", "server"}):
+                        raise ValueError("invalid whitelist fields")
+                    if payload["action"] not in ("add", "remove"):
+                        raise ValueError("invalid whitelist action")
+                    from ..managers.whitelist_manager import WhitelistManager
+                    player = payload["player"]
+                    if not isinstance(player, str) or player != WhitelistManager.validate_name(player):
+                        raise ValueError("invalid player")
+                    command_to_execute = f"whitelist {payload['action']} {player}"
+            except (ValueError, TypeError, KeyError, json.JSONDecodeError):
+                return "❌ 无效的结构化RCON参数"
+        elif command_to_execute == "batch" or command_to_execute.startswith("whitelist {"):
+            return "❌ 无效的结构化RCON参数"
         try:
-            adapter = await self._get_target_adapter()
+            adapter = await self._get_target_adapter(server)
         except AdapterNotFoundError as e:
             return str(e)
-
+        if action == "batch":
+            results = await self.plugin.rcon_manager.execute_batch(
+                commands, event.get_sender_id(), adapter, payload["policy"]
+            )
+            return "\n".join(f"{index}. {result.status.value}: {result.message}"
+                             for index, result in enumerate(results, 1))
         success, message = await self.plugin.rcon_manager.execute_command(
             command_to_execute, event.get_sender_id(), adapter
         )
@@ -400,4 +456,4 @@ mc:
             
         except Exception as e:
             logger.error(f"格式化玩家列表时出错: {str(e)}")
-            return "❌ 解析玩家列表数据时出错" 
+            return "❌ 解析玩家列表数据时出错"

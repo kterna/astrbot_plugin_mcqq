@@ -230,7 +230,10 @@ _cleanup_previous_registration()
         "rcon_enabled": False,
         "rcon_host": "localhost",
         "rcon_port": 25575,
-        "rcon_password": ""
+        "rcon_password": "",
+        "rcon_allowed_commands": [],
+        "rcon_rate_limit_per_sec": 5,
+        "rcon_command_timeout_sec": 10
     }
 )
 class MinecraftPlatformAdapter(BaseMinecraftAdapter):
