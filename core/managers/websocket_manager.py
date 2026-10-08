@@ -1,6 +1,6 @@
 import asyncio
 import json
-import threading
+import weakref
 from collections import deque
 from typing import Awaitable, Callable, Dict, Optional, Tuple
 from urllib.parse import unquote_plus
@@ -13,9 +13,23 @@ import websockets
 from astrbot import logger
 
 
-# 共享反向 WebSocket 服务端：(host, port) -> SharedReverseServer
-_SHARED_SERVERS: Dict[Tuple[str, int], "SharedReverseServer"] = {}
-_SHARED_LOCK = threading.RLock()
+# Shared reverse WebSocket servers are owned by the event loop that created
+# them.  A synchronous lock is unsafe here: ``RLock`` is re-entrant for every
+# coroutine running on the same thread, so a second coroutine can enter while
+# the first one is suspended in ``await websockets.serve(...)``.  Keep one
+# async lock and registry per loop instead.  Weak keys avoid retaining closed
+# test/application loops after their managers have detached.
+_SHARED_SERVERS: Dict[Tuple[asyncio.AbstractEventLoop, str, int], "SharedReverseServer"] = {}
+_SHARED_LOCKS: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock]" = weakref.WeakKeyDictionary()
+
+
+def _shared_registry():
+    loop = asyncio.get_running_loop()
+    lock = _SHARED_LOCKS.get(loop)
+    if lock is None:
+        lock = asyncio.Lock()
+        _SHARED_LOCKS[loop] = lock
+    return loop, lock
 
 
 class SharedReverseServer:
@@ -245,6 +259,10 @@ class WebSocketManager:
         self._send_lock = asyncio.Lock()
         self._stop_event = asyncio.Event()
         self._start_task: Optional[asyncio.Task] = None
+        # All transport objects and lifecycle operations stay on this loop.
+        # Cross-loop use would otherwise await loop-bound Events/Tasks and can
+        # leave a shared listener owned by an unreachable loop.
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._closing = False
         self.health = WebSocketWatchdog(self.server_name)
         self.alert_dispatcher = alert_dispatcher or AlertDispatcher()
@@ -497,6 +515,11 @@ class WebSocketManager:
 
     async def start(self):
         """Start one owned transport loop; close() can wake and await it."""
+        loop = asyncio.get_running_loop()
+        if self._loop is None:
+            self._loop = loop
+        elif self._loop is not loop:
+            raise RuntimeError("WebSocketManager cannot move between event loops")
         current = asyncio.current_task()
         if self._start_task is not None and self._start_task is not current:
             if not self._start_task.done():
@@ -596,8 +619,9 @@ class WebSocketManager:
 
     async def _start_server_mode(self):
         """反向：作为 Server 等待鹊桥 Client 连入。"""
-        with _SHARED_LOCK:
-            key = (self.server_host, self.server_port)
+        loop, lock = _shared_registry()
+        key = (loop, self.server_host, self.server_port)
+        async with lock:
             shared = _SHARED_SERVERS.get(key)
             if shared is None:
                 shared = SharedReverseServer(
@@ -613,7 +637,17 @@ class WebSocketManager:
                 )
             shared.register(self.server_name, self)
             self._shared_server = shared
-            await shared.start()
+            try:
+                # Serialize the bind/start transition with registration.  The
+                # lock is async, so another coroutine on this loop waits rather
+                # than re-entering while this operation is suspended.
+                await shared.start()
+            except BaseException:
+                shared.unregister(self.server_name)
+                if shared.is_empty:
+                    _SHARED_SERVERS.pop(key, None)
+                self._shared_server = None
+                raise
 
         logger.info(
             f"适配器 {self.server_name} 进入反向模式，"
@@ -670,16 +704,25 @@ class WebSocketManager:
             logger.info(f"[{self.server_name}] 反向 WebSocket 已断开")
 
     async def _detach_from_shared_server(self):
-        with _SHARED_LOCK:
-            shared = self._shared_server
-            if shared is None:
+        shared = self._shared_server
+        if shared is None:
+            return
+        loop, lock = _shared_registry()
+        if self._loop is not loop:
+            raise RuntimeError("WebSocketManager cannot detach on a different event loop")
+        key = (loop, shared.host, shared.port)
+        async with lock:
+            # A concurrent close is idempotent; only the owner that still has
+            # the reference may unregister this manager.
+            if self._shared_server is not shared:
                 return
             shared.unregister(self.server_name)
-            key = (shared.host, shared.port)
-            if shared.is_empty:
-                await shared.stop()
-                _SHARED_SERVERS.pop(key, None)
-            self._shared_server = None
+            try:
+                if shared.is_empty:
+                    await shared.stop()
+                    _SHARED_SERVERS.pop(key, None)
+            finally:
+                self._shared_server = None
 
     async def send_message(self, message: dict) -> bool:
         """发送消息到 WebSocket。"""
@@ -697,6 +740,11 @@ class WebSocketManager:
 
     async def close(self):
         """关闭 WebSocket 连接 / 服务端。"""
+        loop = asyncio.get_running_loop()
+        if self._loop is None:
+            self._loop = loop
+        elif self._loop is not loop:
+            raise RuntimeError("WebSocketManager cannot move between event loops")
         self._closing = True
         self.should_reconnect = False
         self._stop_event.set()
