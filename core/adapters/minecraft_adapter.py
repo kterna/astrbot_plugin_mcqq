@@ -426,6 +426,7 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
 
     async def _handle_join_event(self, data, server_class, bound_groups):
         """处理玩家加入事件"""
+        self.websocket_manager.invalidate_player_list()
         player_data = data.get("player", "")
         player_name = (
             player_data.get("display_name")
@@ -456,6 +457,7 @@ class MinecraftPlatformAdapter(BaseMinecraftAdapter):
 
     async def _handle_quit_event(self, data, server_class, bound_groups):
         """处理玩家退出事件"""
+        self.websocket_manager.invalidate_player_list()
         player_data = data.get("player", "")
         player_name = (
             player_data.get("display_name")

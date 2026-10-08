@@ -3,6 +3,8 @@ import json
 from typing import Awaitable, Callable, Dict, Optional, Tuple
 from urllib.parse import unquote_plus
 
+from core.utils.player_cache import PlayerListCache
+
 import websockets
 from astrbot import logger
 
@@ -234,6 +236,100 @@ class WebSocketManager:
         # 待响应的 API 请求：echo -> (api_name, Future)
         self._pending_api: Dict[str, Tuple[str, "asyncio.Future"]] = {}
 
+        # One adapter owns one cache. Generation and epoch fence late replies.
+        self.connection_generation = 0
+        self._player_list_epoch = 0
+        self.player_list_cache = PlayerListCache(default_ttl=5.0, max_capacity=16)
+        self._player_list_flights: Dict[str, asyncio.Task] = {}
+
+    def invalidate_player_list(self):
+        """Invalidate a cached answer and fence every already-started fetch."""
+        self._player_list_epoch += 1
+        self.player_list_cache.clear()
+
+    def _abort_api_waiters(self, reason: str):
+        for _, future in self._pending_api.values():
+            if not future.done():
+                future.set_exception(ConnectionError(reason))
+        self._pending_api.clear()
+
+    def _activate_connection(self, websocket):
+        self.connection_generation += 1
+        self.invalidate_player_list()
+        self._abort_api_waiters("WebSocket connection replaced")
+        self.websocket = websocket
+        self.connected = True
+
+    def _drop_connection(self, websocket=None):
+        if websocket is not None and websocket is not self.websocket:
+            return
+        if self.websocket is None and not self.connected:
+            return
+        self.connection_generation += 1
+        self.invalidate_player_list()
+        self._abort_api_waiters("WebSocket disconnected")
+        self.websocket = None
+        self.connected = False
+
+    @staticmethod
+    def _valid_player_list(response) -> bool:
+        if not isinstance(response, dict) or response.get("status") != "ok":
+            return False
+        data = response.get("data")
+        if not isinstance(data, dict):
+            return False
+        players = data.get("players")
+        count = data.get("count")
+        maximum = data.get("max_players")
+        return (
+            isinstance(players, list)
+            and all(isinstance(player, dict) for player in players)
+            and isinstance(count, int) and not isinstance(count, bool)
+            and isinstance(maximum, int) and not isinstance(maximum, bool)
+            and count == len(players) and 0 <= count <= maximum
+        )
+
+    async def query_player_list(self, fetch: Callable[[], Awaitable[dict]], config_key: str = ""):
+        """Coalesce misses; cancellation of one caller leaves the fetch alive."""
+        while True:
+            generation = self.connection_generation
+            epoch = self._player_list_epoch
+            key = repr((generation, epoch, config_key))
+            cached = self.player_list_cache.get(key)
+            if cached is not None:
+                return cached
+            task = self._player_list_flights.get(key)
+            if task is None:
+                async def run_fetch():
+                    try:
+                        response = await fetch()
+                        if (self.connection_generation, self._player_list_epoch) == (generation, epoch):
+                            if self._valid_player_list(response):
+                                self.player_list_cache.set(key, response)
+                        return response
+                    finally:
+                        self._player_list_flights.pop(key, None)
+
+                task = asyncio.create_task(run_fetch())
+                self._player_list_flights[key] = task
+                # A caller may be cancelled while the owned fetch finishes later.
+                task.add_done_callback(
+                    lambda done: None if done.cancelled() else done.exception()
+                )
+            try:
+                response = await asyncio.shield(task)
+            except Exception:
+                if (self.connection_generation, self._player_list_epoch) != (generation, epoch):
+                    if self.connected:
+                        continue
+                    raise ConnectionError("WebSocket disconnected")
+                raise
+            if (self.connection_generation, self._player_list_epoch) != (generation, epoch):
+                if self.connected:
+                    continue
+                raise ConnectionError("WebSocket disconnected")
+            return response
+
     def set_message_handler(self, handler: Callable[[str], Awaitable[None]]):
         """设置消息处理回调函数"""
         self.message_handler = handler
@@ -252,7 +348,9 @@ class WebSocketManager:
 
     def cancel_api_waiter(self, echo: str):
         """移除等待者（超时或异常时清理，避免泄漏）"""
-        self._pending_api.pop(echo, None)
+        entry = self._pending_api.pop(echo, None)
+        if entry is not None and not entry[1].done():
+            entry[1].cancel()
 
     def _resolve_api_response(self, message: str) -> bool:
         """尝试把消息投递给等待中的 API 请求。
@@ -274,8 +372,11 @@ class WebSocketManager:
         echo = data.get("echo")
         entry = self._pending_api.get(echo) if echo else None
 
-        # 兼容不回显 echo 的旧版鹊桥：按 api 名唯一匹配一个等待者
+        # Only genuinely echo-less legacy replies may use the fallback.
+        # An unknown echo must never consume a newer request after reconnect.
         if entry is None:
+            if echo is not None:
+                return False
             api_name = self._guess_api_name(data)
             if api_name is None:
                 return False
@@ -304,8 +405,10 @@ class WebSocketManager:
             return "get_player_list"
         return None
 
-    async def _dispatch_message(self, message: str):
+    async def _dispatch_message(self, message: str, websocket=None):
         """接收循环统一入口：先给 API 等待者，其余交给普通处理器。"""
+        if websocket is not None and websocket is not self.websocket:
+            return
         if self._resolve_api_response(message):
             return
         if self.message_handler:
@@ -344,8 +447,7 @@ class WebSocketManager:
                     ping_timeout=10,
                     proxy=None,
                 ) as websocket:
-                    self.websocket = websocket
-                    self.connected = True
+                    self._activate_connection(websocket)
                     self.total_retries = 0
                     logger.info(
                         f"成功连接到鹊桥模组 WebSocket 服务器: {self.ws_url}"
@@ -353,7 +455,8 @@ class WebSocketManager:
 
                     async for message in websocket:
                         logger.debug(f"原始 WebSocket 消息: {message}")
-                        await self._dispatch_message(message)
+                        await self._dispatch_message(message, websocket)
+                    self._drop_connection(websocket)
 
             except (
                 websockets.exceptions.ConnectionClosed,
@@ -362,8 +465,7 @@ class WebSocketManager:
                 asyncio.TimeoutError,
                 OSError,
             ) as e:
-                self.connected = False
-                self.websocket = None
+                self._drop_connection()
 
                 if not self.should_reconnect:
                     break
@@ -393,15 +495,13 @@ class WebSocketManager:
                 await asyncio.sleep(wait_time)
 
             except Exception as e:
-                self.connected = False
-                self.websocket = None
+                self._drop_connection()
                 logger.error(f"WebSocket 处理未知错误: {e}")
                 if not self.should_reconnect:
                     break
                 await asyncio.sleep(self.reconnect_interval)
 
-        self.connected = False
-        self.websocket = None
+        self._drop_connection()
         self._closed.set()
 
     async def _start_server_mode(self):
@@ -438,16 +538,14 @@ class WebSocketManager:
 
     async def _on_server_client_connected(self, websocket):
         """server 模式：处理单个鹊桥 Client 连接生命周期。"""
-        # 替换旧连接
+        # Publish the new generation before closing the old transport.
         old = self.websocket
+        self._activate_connection(websocket)
         if old is not None and old is not websocket:
             try:
                 await old.close(1000, "Replaced by new connection")
             except Exception:
                 pass
-
-        self.websocket = websocket
-        self.connected = True
         self._client_gone.clear()
         logger.info(f"[{self.server_name}] 反向 WebSocket 已建立")
 
@@ -457,7 +555,7 @@ class WebSocketManager:
                     f"[{self.server_name}] 反向 WS 原始消息: {message}"
                 )
                 try:
-                    await self._dispatch_message(message)
+                    await self._dispatch_message(message, websocket)
                 except Exception as e:
                     logger.error(
                         f"[{self.server_name}] 处理反向 WS 消息出错: {e}"
@@ -470,9 +568,7 @@ class WebSocketManager:
         except Exception as e:
             logger.error(f"[{self.server_name}] 反向 WS 连接异常: {e}")
         finally:
-            if self.websocket is websocket:
-                self.websocket = None
-                self.connected = False
+            self._drop_connection(websocket)
             self._client_gone.set()
             logger.info(f"[{self.server_name}] 反向 WebSocket 已断开")
 
@@ -506,8 +602,13 @@ class WebSocketManager:
         self.should_reconnect = False
 
         ws = self.websocket
-        self.websocket = None
-        self.connected = False
+        self._drop_connection()
+        flights = list(self._player_list_flights.values())
+        for task in flights:
+            task.cancel()
+        if flights:
+            await asyncio.gather(*flights, return_exceptions=True)
+        self._player_list_flights.clear()
         if ws is not None:
             try:
                 await ws.close()

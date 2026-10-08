@@ -1,5 +1,6 @@
-"""Thread-safe LRU & TTL cache for player list and server status queries."""
+"""Event-loop-owned bounded TTL cache for player-list data."""
 
+import copy
 import time
 from collections import OrderedDict
 from typing import Dict, List, Optional, Tuple, Any
@@ -13,7 +14,7 @@ class CacheEntry:
 
 
 class PlayerListCache:
-    """Thread-safe LRU Cache with TTL support for multi-server player queries."""
+    """Bounded TTL cache with independent snapshots for each caller."""
     def __init__(self, default_ttl: float = 15.0, max_capacity: int = 100):
         self.default_ttl = default_ttl
         self.max_capacity = max_capacity
@@ -29,7 +30,7 @@ class PlayerListCache:
             del self._cache[server_name]
             return None
         self._cache.move_to_end(server_name)
-        return list(entry.value)
+        return copy.deepcopy(entry.value)
 
     def set(self, server_name: str, players: List[str], ttl: Optional[float] = None):
         now = time.monotonic()
@@ -39,7 +40,7 @@ class PlayerListCache:
         elif len(self._cache) >= self.max_capacity:
             self._cache.popitem(last=False) # Evict oldest
         self._cache[server_name] = CacheEntry(
-            value=list(players),
+            value=copy.deepcopy(players),
             expires_at=now + effective_ttl
         )
 

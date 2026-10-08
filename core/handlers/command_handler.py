@@ -1,5 +1,7 @@
 """命令处理器模块，集中管理所有命令的处理逻辑"""
 import asyncio
+import hashlib
+import json
 from typing import Optional
 from astrbot.api.event import AstrMessageEvent
 from astrbot import logger
@@ -325,8 +327,20 @@ mc:
             return "❌ Minecraft适配器未连接，请检查连接状态"
         
         try:
-            response = await self._request_api(
-                adapter, "get_player_list", {}, timeout=5
+            # A manager belongs to one adapter. Include live config in the
+            # cache key so an in-place reload cannot reuse an old answer.
+            config = getattr(adapter, "config", {}) or {}
+            relevant = {
+                key: config.get(key)
+                for key in ("server_name", "ws_mode", "ws_url", "ws_server_host",
+                            "ws_server_port", "ws_server_path", "Authorization")
+            }
+            config_key = hashlib.sha256(
+                json.dumps(relevant, sort_keys=True, default=str).encode()
+            ).hexdigest()
+            response = await adapter.websocket_manager.query_player_list(
+                lambda: self._request_api(adapter, "get_player_list", {}, timeout=5),
+                config_key=config_key,
             )
         except ApiRequestFailedError:
             return "❌ 请求失败，请检查是否为mcdr插件或网络连接"
@@ -336,6 +350,10 @@ mc:
             logger.error(f"获取玩家列表时出错: {str(e)}")
             return "❌ 请求失败，请检查是否为mcdr插件或网络连接"
 
+        if not isinstance(response, dict):
+            return "❌ 解析玩家列表数据时出错"
+        if response.get("status") == "ok" and not adapter.websocket_manager._valid_player_list(response):
+            return "❌ 解析玩家列表数据时出错"
         return self._format_player_list_response(response)
 
     async def _request_api(self, adapter, api_name: str, data: dict, timeout: int = 5):
